@@ -59,7 +59,7 @@ The command validates and parses the UIAutomator XML, reports the visible and cl
 .venv/bin/python -m hackex2 detect-screen
 ```
 
-The supported states are `HOME`, `PROCESSES`, and `TARGET_DASHBOARD`. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
+The supported states are `HOME`, `PROCESSES`, `TARGET_DASHBOARD`, and the observed `TARGET_WALLET_LOGIN` branch. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
 
 ## Humanized input configuration
 
@@ -115,6 +115,16 @@ The swipe stays inside the detected scrollable process region. The command verif
 ```
 
 The command requires a verified `TARGET_DASHBOARD` and parses the observed identity, level, reputation, score, XP, IPv4 address, device, network, firewall, encryptor, and available actions. It only reads the UI hierarchy and never opens Wallet, Apps, Processes, Log, Crews, or Disconnect.
+
+## Inspect a target-wallet branch
+
+```bash
+.venv/bin/python -m hackex2 inspect-target-wallet
+```
+
+Wallet is treated as a branching transition. The currently verified branch is `TARGET_WALLET_LOGIN`: the command confirms the owner and prefilled username agree, reports only the length of the masked password, and never submits the form. A different or incomplete Wallet layout remains `UNKNOWN_SCREEN` until it has been observed and implemented as its own branch.
+
+Screen recognition is theme-independent: screenshots are diagnostic artifacts only. Automation relies on accessible text, enabled/clickable properties, and structural relationships between UI elements, never on wallpaper, button backgrounds, colors, or pixel matching.
 
 ## Focused test
 

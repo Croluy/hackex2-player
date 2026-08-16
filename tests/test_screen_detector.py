@@ -141,6 +141,40 @@ class ScreenDetectorTest(unittest.TestCase):
         self.assertEqual(detection.state, ScreenState.UNKNOWN_SCREEN)
         self.assertIn("target Crews action", detection.missing_evidence)
 
+    def test_detects_observed_target_wallet_login_branch(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(text="// CRYPTO WALLET"),
+                node(text="WALLET LOGIN"),
+                node(text="USERNAME"),
+                node(text="PASSWORD"),
+                node(text="LOGIN &gt;", clickable=True),
+                node(text="&lt; back", clickable=True),
+                node(text="DISCONNECT", clickable=True),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.TARGET_WALLET_LOGIN)
+        self.assertEqual(detection.confidence, 1.0)
+        self.assertEqual(len(detection.evidence), 7)
+
+    def test_unknown_wallet_variant_is_not_assumed_to_be_login(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(text="// CRYPTO WALLET"),
+                node(text="WALLET SECURITY"),
+                node(text="&lt; back", clickable=True),
+                node(text="DISCONNECT", clickable=True),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.UNKNOWN_SCREEN)
+        self.assertIn("wallet Login panel", detection.missing_evidence)
+
 
 if __name__ == "__main__":
     unittest.main()

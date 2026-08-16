@@ -12,6 +12,7 @@ class ScreenState(str, Enum):
     HOME = "HOME"
     PROCESSES = "PROCESSES"
     TARGET_DASHBOARD = "TARGET_DASHBOARD"
+    TARGET_WALLET_LOGIN = "TARGET_WALLET_LOGIN"
     UNKNOWN_SCREEN = "UNKNOWN_SCREEN"
 
 
@@ -86,6 +87,16 @@ _TARGET_DASHBOARD_MARKERS = (
     _Marker(name="target system information panel", text="// SYSTEM INFO"),
 )
 
+_TARGET_WALLET_LOGIN_MARKERS = (
+    _Marker(name="target wallet heading", text="// CRYPTO WALLET"),
+    _Marker(name="wallet Login panel", text="WALLET LOGIN"),
+    _Marker(name="wallet Username label", text="USERNAME"),
+    _Marker(name="wallet Password label", text="PASSWORD"),
+    _Marker(name="wallet Login action", text="LOGIN >", clickable=True),
+    _Marker(name="target wallet Back action", text="< back", clickable=True),
+    _Marker(name="target disconnect action", text="DISCONNECT", clickable=True),
+)
+
 
 def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
     if "net.cncapps.hackex2" not in hierarchy.packages:
@@ -102,6 +113,10 @@ def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
         (
             ScreenState.TARGET_DASHBOARD,
             _match_markers(_TARGET_DASHBOARD_MARKERS, hierarchy),
+        ),
+        (
+            ScreenState.TARGET_WALLET_LOGIN,
+            _match_markers(_TARGET_WALLET_LOGIN_MARKERS, hierarchy),
         ),
     )
     complete = tuple(

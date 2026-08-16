@@ -35,6 +35,7 @@ from hackex2.target_dashboard import (
     TargetDashboardParseError,
     parse_target_dashboard,
 )
+from hackex2.target_wallet import TargetWalletParseError, parse_target_wallet_login
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -101,6 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
         "inspect-target", help="parse the currently connected target dashboard"
     )
     add_adb_arguments(target_parser)
+
+    wallet_parser = subparsers.add_parser(
+        "inspect-target-wallet",
+        help="classify and parse the currently open target-wallet branch",
+    )
+    add_adb_arguments(wallet_parser)
 
     filter_parser = subparsers.add_parser(
         "process-filter", help="select and verify a typed process filter"
@@ -352,6 +359,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"Encryptor: Lv.{target.encryptor_level}"
         )
         print(f"Available actions: {', '.join(target.available_actions)}")
+        print(f"UI hierarchy: {dump.path}")
+        return 0
+
+    if args.command == "inspect-target-wallet":
+        timestamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+        client = ADBClient(adb_path=args.adb_path)
+        try:
+            dump = client.capture_ui_hierarchy(
+                Path("diagnostics", f"target-wallet-{timestamp}.xml"), args.serial
+            )
+            detection = detect_screen(dump.hierarchy)
+            if detection.state is not ScreenState.TARGET_WALLET_LOGIN:
+                raise TargetWalletParseError(
+                    "wallet branch is not recognized: "
+                    f"observed {detection.state.value}"
+                )
+            wallet = parse_target_wallet_login(dump.hierarchy)
+        except (ADBError, OSError, TargetWalletParseError, ValueError) as exc:
+            print(f"Target wallet inspection failed: {exc}", file=sys.stderr)
+            return 1
+
+        print("STATE: TARGET_WALLET_LOGIN")
+        print(f"Wallet branch: {wallet.variant.value}")
+        print(f"Owner: {wallet.owner_username}")
+        print(f"Prefilled username: {wallet.login_username}")
+        print(
+            "Password: masked and present "
+            f"({wallet.masked_password_length} mask characters)"
+        )
+        print(f"Available actions: {', '.join(wallet.available_actions)}")
         print(f"UI hierarchy: {dump.path}")
         return 0
 

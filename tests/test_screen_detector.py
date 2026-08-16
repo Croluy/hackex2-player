@@ -175,6 +175,23 @@ class ScreenDetectorTest(unittest.TestCase):
         self.assertEqual(detection.state, ScreenState.UNKNOWN_SCREEN)
         self.assertIn("wallet Login panel", detection.missing_evidence)
 
+    def test_detects_authenticated_wallet_independent_of_transfer_branch(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(text="// CRYPTO WALLET"),
+                node(text="WALLET ADDRESS"),
+                node(text="HHOT WALLET38 CryptoSWALLET SHIELD ACTIVE"),
+                node(text="&lt; back", clickable=True),
+                node(text="DISCONNECT", clickable=True),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.TARGET_WALLET_AUTHENTICATED)
+        self.assertEqual(detection.confidence, 1.0)
+        self.assertEqual(len(detection.evidence), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

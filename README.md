@@ -59,7 +59,7 @@ The command validates and parses the UIAutomator XML, reports the visible and cl
 .venv/bin/python -m hackex2 detect-screen
 ```
 
-The supported states are `HOME`, `PROCESSES`, `TARGET_DASHBOARD`, and the observed `TARGET_WALLET_LOGIN` branch. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
+The supported states are `HOME`, `PROCESSES`, `TARGET_DASHBOARD`, `TARGET_WALLET_LOGIN`, and `TARGET_WALLET_AUTHENTICATED`. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
 
 ## Humanized input configuration
 
@@ -123,6 +123,8 @@ The command requires a verified `TARGET_DASHBOARD` and parses the observed ident
 ```
 
 Wallet is treated as a branching transition. The currently verified branch is `TARGET_WALLET_LOGIN`: the command confirms the owner and prefilled username agree, reports only the length of the masked password, and never submits the form. A different or incomplete Wallet layout remains `UNKNOWN_SCREEN` until it has been observed and implemented as its own branch.
+
+After login, the authenticated Wallet is classified as `TRANSFERABLE`, `PROTECTED`, or confirmed `TRANSFERRED` from accessible balance, protection, confirmation, and control state. `transfer-target-wallet` skips protected Wallets and balances of 1 Crypto or less. Otherwise it taps `MAX`, requires either the exact exposed amount or a same-attempt disabled-to-enabled transfer transition when the WebView marks the input `NAF`, taps transfer once, and requires either a matching success message or a zero final balance. It never retries the transfer tap. `target-wallet-back`, `open-target-wallet`, and `login-target-wallet` provide separately verified transitions for resetting and entering the Wallet flow.
 
 Screen recognition is theme-independent: screenshots are diagnostic artifacts only. Automation relies on accessible text, enabled/clickable properties, and structural relationships between UI elements, never on wallpaper, button backgrounds, colors, or pixel matching.
 

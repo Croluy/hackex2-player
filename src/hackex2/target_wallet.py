@@ -17,6 +17,9 @@ class TargetWalletVariant(str, Enum):
     """Wallet branches verified from real UI observations."""
 
     LOGIN = "LOGIN"
+    TRANSFERABLE = "TRANSFERABLE"
+    PROTECTED = "PROTECTED"
+    TRANSFERRED = "TRANSFERRED"
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,21 @@ class TargetWalletSnapshot:
     available_actions: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class TargetWalletAuthenticatedSnapshot:
+    variant: TargetWalletVariant
+    owner_username: str
+    wallet_address: str
+    hot_wallet_crypto: int
+    cold_storage_crypto: int | None
+    transfer_amount: int | None
+    amount_field: UIElement | None
+    max_action: UIElement | None
+    transfer_action: UIElement | None
+    back_action: UIElement
+    protection_evidence: tuple[str, ...]
+
+
 _OWNER = re.compile(r"(.+)'s wallet")
 _MASKED_PASSWORD = re.compile(r"\*+")
 _ACTION_LABELS = {
@@ -35,6 +53,16 @@ _ACTION_LABELS = {
     "DISCONNECT": "DISCONNECT",
     "LOGIN >": "LOGIN",
 }
+_WALLET_ADDRESS = re.compile(r"hx[0-9a-z]+", re.IGNORECASE)
+_HOT_WALLET = re.compile(r"HOT WALLET\s*([\d,]+)\s*Crypto", re.IGNORECASE)
+_COLD_STORAGE = re.compile(
+    r"COLD STORAGE(?:\s*Secured)?\s*([\d,]+)\s*Crypto", re.IGNORECASE
+)
+_TRANSFER_CONFIRMATION = re.compile(
+    r"\[OK]\s+Transferred\s+([\d,]+)\s+Crypto\s+to\s+your\s+wallet\.",
+    re.IGNORECASE,
+)
+_PROTECTION_MARKERS = ("WALLET SHIELD ACTIVE", "TRANSFER BLOCKED")
 
 
 def parse_target_wallet_login(hierarchy: UIHierarchy) -> TargetWalletSnapshot:
@@ -95,6 +123,192 @@ def parse_target_wallet_login(hierarchy: UIHierarchy) -> TargetWalletSnapshot:
         masked_password_length=len(masked_password),
         available_actions=actions,
     )
+
+
+def parse_target_wallet_authenticated(
+    hierarchy: UIHierarchy,
+) -> TargetWalletAuthenticatedSnapshot:
+    """Parse a logged-in Wallet and classify only verified functional branches."""
+
+    owner = _parse_owner(hierarchy)
+    address = _single_pattern_value(
+        hierarchy, _WALLET_ADDRESS, "target wallet address"
+    )
+    hot_wallet_crypto = _single_pattern_integer(
+        hierarchy, _HOT_WALLET, "hot wallet balance"
+    )
+    cold_values = _pattern_integers(hierarchy, _COLD_STORAGE)
+    if len(cold_values) > 1:
+        raise TargetWalletParseError(
+            f"expected at most one cold storage balance, found {len(cold_values)}"
+        )
+    cold_storage_crypto = cold_values[0] if cold_values else None
+
+    protection_evidence = tuple(
+        marker
+        for marker in _PROTECTION_MARKERS
+        if any(marker in element.text.upper() for element in hierarchy.elements)
+    )
+    amount_field = _optional_visible_element(hierarchy, resource_id="steal-amount")
+    max_action = _optional_visible_element(hierarchy, text="MAX")
+    transfer_action = _optional_visible_element(
+        hierarchy, text="TRANSFER TO MY WALLET"
+    )
+    back_action = _single_clickable_element(hierarchy, "< back")
+    transfer_confirmation = parse_wallet_transfer_confirmation(hierarchy)
+
+    if protection_evidence:
+        active_controls = tuple(
+            name
+            for name, element in (
+                ("MAX", max_action),
+                ("TRANSFER TO MY WALLET", transfer_action),
+            )
+            if element is not None and element.enabled and element.clickable
+        )
+        if active_controls:
+            raise TargetWalletParseError(
+                "wallet reports protection but transfer controls are active: "
+                f"{', '.join(active_controls)}"
+            )
+        variant = TargetWalletVariant.PROTECTED
+    elif transfer_confirmation is not None and hot_wallet_crypto == 0:
+        active_form_elements = tuple(
+            name
+            for name, element in (
+                ("amount", amount_field),
+                ("MAX", max_action),
+                ("TRANSFER TO MY WALLET", transfer_action),
+            )
+            if element is not None and element.enabled
+        )
+        if active_form_elements:
+            raise TargetWalletParseError(
+                "wallet reports a completed transfer but form elements remain active: "
+                f"{', '.join(active_form_elements)}"
+            )
+        variant = TargetWalletVariant.TRANSFERRED
+    else:
+        if amount_field is None or max_action is None or transfer_action is None:
+            raise TargetWalletParseError(
+                "wallet has no protection marker and an incomplete transfer form"
+            )
+        if not amount_field.enabled or not amount_field.clickable:
+            raise TargetWalletParseError("wallet transfer amount field is unavailable")
+        if not max_action.enabled or not max_action.clickable:
+            raise TargetWalletParseError(
+                "MAX is unavailable without a recognized protection marker"
+            )
+        variant = TargetWalletVariant.TRANSFERABLE
+
+    transfer_amount = _parse_optional_crypto_amount(
+        amount_field.text if amount_field is not None else ""
+    )
+    return TargetWalletAuthenticatedSnapshot(
+        variant=variant,
+        owner_username=owner,
+        wallet_address=address,
+        hot_wallet_crypto=hot_wallet_crypto,
+        cold_storage_crypto=cold_storage_crypto,
+        transfer_amount=transfer_amount,
+        amount_field=amount_field,
+        max_action=max_action,
+        transfer_action=transfer_action,
+        back_action=back_action,
+        protection_evidence=protection_evidence,
+    )
+
+
+def parse_wallet_transfer_confirmation(hierarchy: UIHierarchy) -> int | None:
+    """Return the confirmed transferred amount, rejecting conflicting messages."""
+
+    amounts = tuple(
+        int(match.group(1).replace(",", ""))
+        for element in hierarchy.elements
+        if (match := _TRANSFER_CONFIRMATION.fullmatch(element.text.strip())) is not None
+    )
+    if len(set(amounts)) > 1:
+        raise TargetWalletParseError("wallet shows conflicting transfer confirmations")
+    return amounts[0] if amounts else None
+
+
+def _parse_owner(hierarchy: UIHierarchy) -> str:
+    owners = tuple(
+        match.group(1).strip()
+        for element in hierarchy.elements
+        if (match := _OWNER.fullmatch(element.text.strip())) is not None
+    )
+    if len(owners) != 1 or not owners[0]:
+        raise TargetWalletParseError(
+            f"expected exactly one wallet owner, found {len(owners)}"
+        )
+    return owners[0]
+
+
+def _pattern_integers(
+    hierarchy: UIHierarchy, pattern: re.Pattern[str]
+) -> tuple[int, ...]:
+    return tuple(
+        int(match.group(1).replace(",", ""))
+        for element in hierarchy.elements
+        if (match := pattern.search(element.text.strip())) is not None
+    )
+
+
+def _single_pattern_integer(
+    hierarchy: UIHierarchy, pattern: re.Pattern[str], description: str
+) -> int:
+    values = _pattern_integers(hierarchy, pattern)
+    if len(values) != 1:
+        raise TargetWalletParseError(
+            f"expected exactly one {description}, found {len(values)}"
+        )
+    return values[0]
+
+
+def _single_pattern_value(
+    hierarchy: UIHierarchy, pattern: re.Pattern[str], description: str
+) -> str:
+    values = tuple(
+        element.text.strip()
+        for element in hierarchy.elements
+        if pattern.fullmatch(element.text.strip()) is not None
+    )
+    if len(values) != 1:
+        raise TargetWalletParseError(
+            f"expected exactly one {description}, found {len(values)}"
+        )
+    return values[0]
+
+
+def _parse_optional_crypto_amount(value: str) -> int | None:
+    normalized = value.strip().replace(",", "")
+    if not normalized:
+        return None
+    if not normalized.isdigit():
+        raise TargetWalletParseError(
+            f"wallet transfer amount is not an integer: {value!r}"
+        )
+    return int(normalized)
+
+
+def _optional_visible_element(
+    hierarchy: UIHierarchy,
+    *,
+    text: str | None = None,
+    resource_id: str | None = None,
+) -> UIElement | None:
+    matches = tuple(
+        element
+        for element in hierarchy.find_all(text=text, resource_id=resource_id)
+        if element.bounds.width > 0 and element.bounds.height > 0
+    )
+    if len(matches) > 1:
+        description = text or resource_id or "wallet element"
+        raise TargetWalletParseError(
+            f"expected at most one {description} element, found {len(matches)}"
+        )
+    return matches[0] if matches else None
 
 
 def _single_field_value(

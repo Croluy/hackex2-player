@@ -35,7 +35,15 @@ from hackex2.target_dashboard import (
     TargetDashboardParseError,
     parse_target_dashboard,
 )
-from hackex2.target_wallet import TargetWalletParseError, parse_target_wallet_login
+from hackex2.target_wallet import (
+    TargetWalletParseError,
+    parse_target_wallet_authenticated,
+    parse_target_wallet_login,
+)
+from hackex2.target_wallet_actions import (
+    TargetWalletActionError,
+    TargetWalletController,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -108,6 +116,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="classify and parse the currently open target-wallet branch",
     )
     add_adb_arguments(wallet_parser)
+
+    transfer_parser = subparsers.add_parser(
+        "transfer-target-wallet",
+        help="conditionally transfer a verified target hot-wallet balance",
+    )
+    add_adb_arguments(transfer_parser)
+
+    wallet_back_parser = subparsers.add_parser(
+        "target-wallet-back",
+        help="return from a verified target Wallet to its dashboard",
+    )
+    add_adb_arguments(wallet_back_parser)
+
+    open_wallet_parser = subparsers.add_parser(
+        "open-target-wallet",
+        help="open Wallet from a verified target dashboard",
+    )
+    add_adb_arguments(open_wallet_parser)
+
+    login_wallet_parser = subparsers.add_parser(
+        "login-target-wallet",
+        help="submit a verified prefilled target-wallet Login once",
+    )
+    add_adb_arguments(login_wallet_parser)
 
     filter_parser = subparsers.add_parser(
         "process-filter", help="select and verify a typed process filter"
@@ -370,26 +402,97 @@ def main(argv: Sequence[str] | None = None) -> int:
                 Path("diagnostics", f"target-wallet-{timestamp}.xml"), args.serial
             )
             detection = detect_screen(dump.hierarchy)
-            if detection.state is not ScreenState.TARGET_WALLET_LOGIN:
+            if detection.state is ScreenState.TARGET_WALLET_LOGIN:
+                wallet = parse_target_wallet_login(dump.hierarchy)
+            elif detection.state is ScreenState.TARGET_WALLET_AUTHENTICATED:
+                wallet = parse_target_wallet_authenticated(dump.hierarchy)
+            else:
                 raise TargetWalletParseError(
                     "wallet branch is not recognized: "
                     f"observed {detection.state.value}"
                 )
-            wallet = parse_target_wallet_login(dump.hierarchy)
         except (ADBError, OSError, TargetWalletParseError, ValueError) as exc:
             print(f"Target wallet inspection failed: {exc}", file=sys.stderr)
             return 1
 
-        print("STATE: TARGET_WALLET_LOGIN")
+        print(f"STATE: {detection.state.value}")
         print(f"Wallet branch: {wallet.variant.value}")
         print(f"Owner: {wallet.owner_username}")
-        print(f"Prefilled username: {wallet.login_username}")
-        print(
-            "Password: masked and present "
-            f"({wallet.masked_password_length} mask characters)"
-        )
-        print(f"Available actions: {', '.join(wallet.available_actions)}")
+        if detection.state is ScreenState.TARGET_WALLET_LOGIN:
+            print(f"Prefilled username: {wallet.login_username}")
+            print(
+                "Password: masked and present "
+                f"({wallet.masked_password_length} mask characters)"
+            )
+            print(f"Available actions: {', '.join(wallet.available_actions)}")
+        else:
+            print(f"Wallet address: {wallet.wallet_address}")
+            print(f"Hot wallet: {wallet.hot_wallet_crypto} Crypto")
+            cold = (
+                f"{wallet.cold_storage_crypto} Crypto"
+                if wallet.cold_storage_crypto is not None
+                else "unknown"
+            )
+            print(f"Cold storage: {cold}")
+            print(
+                "Protection evidence: "
+                f"{', '.join(wallet.protection_evidence) or 'none'}"
+            )
         print(f"UI hierarchy: {dump.path}")
+        return 0
+
+    if args.command in {
+        "transfer-target-wallet",
+        "target-wallet-back",
+        "open-target-wallet",
+        "login-target-wallet",
+    }:
+        controller = TargetWalletController(
+            ADBClient(adb_path=args.adb_path),
+            HumanizedInput(InputSettings.from_environment()),
+            NavigationSettings.from_environment(),
+            event_handler=print,
+        )
+        try:
+            if args.command == "transfer-target-wallet":
+                result = controller.transfer_available_crypto(args.serial)
+                print(f"Wallet result: {result.status.value}")
+                print(f"Initial hot wallet: {result.initial_balance} Crypto")
+                print(f"Transferred: {result.transferred_crypto} Crypto")
+                final = (
+                    f"{result.final_balance} Crypto"
+                    if result.final_balance is not None
+                    else "confirmed by matching success message"
+                )
+                print(f"Final hot wallet: {final}")
+            elif args.command == "target-wallet-back":
+                result = controller.return_to_dashboard(args.serial)
+                print(f"STATE: {result.source.value}")
+                print(f"Verified after observations: {result.observations}")
+                print(f"Action attempts: {result.attempts}")
+                print(f"STATE: {result.destination.value}")
+            elif args.command == "open-target-wallet":
+                result = controller.open_from_dashboard(args.serial)
+                print(f"STATE: {result.source.value}")
+                print(f"Verified after observations: {result.observations}")
+                print(f"Action attempts: {result.attempts}")
+                print(f"STATE: {result.destination.value}")
+            else:
+                result = controller.login(args.serial)
+                print(f"STATE: {result.source.value}")
+                print(f"Verified after observations: {result.observations}")
+                print(f"Action attempts: {result.attempts}")
+                print(f"STATE: {result.destination.value}")
+        except (
+            ADBError,
+            ConfigurationError,
+            OSError,
+            TargetWalletActionError,
+            TargetWalletParseError,
+            ValueError,
+        ) as exc:
+            print(f"Target wallet action failed: {exc}", file=sys.stderr)
+            return 1
         return 0
 
     if args.command == "process-filter":

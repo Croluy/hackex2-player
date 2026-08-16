@@ -13,6 +13,7 @@ class ScreenState(str, Enum):
     PROCESSES = "PROCESSES"
     TARGET_DASHBOARD = "TARGET_DASHBOARD"
     TARGET_WALLET_LOGIN = "TARGET_WALLET_LOGIN"
+    TARGET_WALLET_AUTHENTICATED = "TARGET_WALLET_AUTHENTICATED"
     UNKNOWN_SCREEN = "UNKNOWN_SCREEN"
 
 
@@ -30,11 +31,13 @@ class _Marker:
     text: str | None = None
     resource_id: str | None = None
     content_description: str | None = None
+    text_contains: str | None = None
     clickable: bool | None = None
 
     def matches(self, element: UIElement) -> bool:
         return (
             (self.text is None or element.text == self.text)
+            and (self.text_contains is None or self.text_contains in element.text)
             and (self.resource_id is None or element.resource_id == self.resource_id)
             and (
                 self.content_description is None
@@ -97,6 +100,14 @@ _TARGET_WALLET_LOGIN_MARKERS = (
     _Marker(name="target disconnect action", text="DISCONNECT", clickable=True),
 )
 
+_TARGET_WALLET_AUTHENTICATED_MARKERS = (
+    _Marker(name="target wallet heading", text="// CRYPTO WALLET"),
+    _Marker(name="wallet address label", text="WALLET ADDRESS"),
+    _Marker(name="hot wallet balance summary", text_contains="HOT WALLET"),
+    _Marker(name="target wallet Back action", text="< back", clickable=True),
+    _Marker(name="target disconnect action", text="DISCONNECT", clickable=True),
+)
+
 
 def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
     if "net.cncapps.hackex2" not in hierarchy.packages:
@@ -117,6 +128,10 @@ def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
         (
             ScreenState.TARGET_WALLET_LOGIN,
             _match_markers(_TARGET_WALLET_LOGIN_MARKERS, hierarchy),
+        ),
+        (
+            ScreenState.TARGET_WALLET_AUTHENTICATED,
+            _match_markers(_TARGET_WALLET_AUTHENTICATED_MARKERS, hierarchy),
         ),
     )
     complete = tuple(

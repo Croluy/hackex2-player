@@ -16,6 +16,9 @@ class InputSettings:
     min_action_delay_ms: int = 100
     max_action_delay_ms: int = 500
     tap_random_radius_px: int = 12
+    min_swipe_duration_ms: int = 300
+    max_swipe_duration_ms: int = 400
+    swipe_random_radius_px: int = 18
 
     @classmethod
     def from_environment(cls) -> InputSettings:
@@ -23,6 +26,9 @@ class InputSettings:
             min_action_delay_ms=_read_integer("MIN_ACTION_DELAY_MS", 100),
             max_action_delay_ms=_read_integer("MAX_ACTION_DELAY_MS", 500),
             tap_random_radius_px=_read_integer("TAP_RANDOM_RADIUS_PX", 12),
+            min_swipe_duration_ms=_read_integer("MIN_SWIPE_DURATION_MS", 300),
+            max_swipe_duration_ms=_read_integer("MAX_SWIPE_DURATION_MS", 400),
+            swipe_random_radius_px=_read_integer("SWIPE_RANDOM_RADIUS_PX", 18),
         )
         settings.validate()
         return settings
@@ -37,6 +43,15 @@ class InputSettings:
             )
         if self.tap_random_radius_px < 0:
             raise ConfigurationError("TAP_RANDOM_RADIUS_PX must be zero or greater")
+        if self.min_swipe_duration_ms < 1:
+            raise ConfigurationError("MIN_SWIPE_DURATION_MS must be at least 1")
+        if self.max_swipe_duration_ms < self.min_swipe_duration_ms:
+            raise ConfigurationError(
+                "MAX_SWIPE_DURATION_MS must be greater than or equal to "
+                "MIN_SWIPE_DURATION_MS"
+            )
+        if self.swipe_random_radius_px < 0:
+            raise ConfigurationError("SWIPE_RANDOM_RADIUS_PX must be zero or greater")
 
 
 @dataclass(frozen=True)

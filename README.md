@@ -82,6 +82,32 @@ Tap points use a center-weighted distribution, stay inside the detected clickabl
 
 Navigation starts only from a recognized screen, targets exactly one enabled UI element, and polls a limited number of times until the requested destination is recognized. A tap may be retried only while the observed state remains exactly the known source state. Unknown or alternative states stop immediately. Failed transitions save diagnostic XML and PNG files.
 
+## Inspect visible processes
+
+```bash
+.venv/bin/python -m hackex2 inspect-processes
+```
+
+The command requires the verified `PROCESSES` state, reads process cards by their dynamic `proc-*` identifiers, distinguishes visible cards from zero-sized off-screen cards, and recognizes completed, failed, running, invalidated, paused, and unknown states. It also extracts observable IP addresses, success chances, lower-case game tags, system markers, and identifiable actions. It does not assume that the active-task count equals the currently visible card count.
+
+## Select a verified process filter
+
+```bash
+.venv/bin/python -m hackex2 process-filter shield
+.venv/bin/python -m hackex2 process-filter lock
+```
+
+The unlabelled filter buttons are located relative to the accessible `ALL` control in the same row. Selection is accepted only when the observed process type matches the requested shield (`Firewall Bypass`), lock (`Password Crack`), or antivirus (`Antivirus Scan`) filter. Empty or ambiguous results stop without guessing.
+
+## Scroll the process list once
+
+```bash
+.venv/bin/python -m hackex2 scroll-processes up
+.venv/bin/python -m hackex2 scroll-processes down
+```
+
+The swipe stays inside the detected scrollable process region. The command verifies that the selected filter is unchanged and that the visible process signature moved. It detects the first or last exposed process as a boundary rather than assuming a fixed number of swipes.
+
 ## Focused test
 
 ```bash

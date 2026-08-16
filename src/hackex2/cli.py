@@ -18,6 +18,18 @@ from hackex2.config import (
     load_env_file,
 )
 from hackex2.navigation import NavigationError, Navigator
+from hackex2.processes import (
+    ProcessFilter,
+    ProcessParseError,
+    infer_selected_process_filter,
+    parse_process_list,
+)
+from hackex2.process_filters import ProcessFilterController, ProcessFilterError
+from hackex2.process_scroller import (
+    ProcessScrollError,
+    ProcessScroller,
+    ScrollDirection,
+)
 from hackex2.states import ScreenState, detect_screen
 
 
@@ -69,6 +81,36 @@ def build_parser() -> argparse.ArgumentParser:
         "destination",
         choices=("home", "processes"),
         help="known screen to open",
+    )
+
+    processes_parser = subparsers.add_parser(
+        "inspect-processes", help="parse process cards from the current screen"
+    )
+    add_adb_arguments(processes_parser)
+    processes_parser.add_argument(
+        "--all-exposed",
+        action="store_true",
+        help="include zero-sized process cards exposed outside the viewport",
+    )
+
+    filter_parser = subparsers.add_parser(
+        "process-filter", help="select and verify a typed process filter"
+    )
+    add_adb_arguments(filter_parser)
+    filter_parser.add_argument(
+        "filter",
+        choices=("shield", "lock", "antivirus"),
+        help="identifiable process filter to select",
+    )
+
+    scroll_parser = subparsers.add_parser(
+        "scroll-processes", help="perform one verified process-list scroll"
+    )
+    add_adb_arguments(scroll_parser)
+    scroll_parser.add_argument(
+        "direction",
+        choices=("up", "down"),
+        help="up reveals later cards; down returns toward earlier cards",
     )
     return parser
 
@@ -208,6 +250,123 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"STATE: {result.destination.value}")
         return 0
 
+    if args.command == "inspect-processes":
+        timestamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+        client = ADBClient(adb_path=args.adb_path)
+        try:
+            dump = client.capture_ui_hierarchy(
+                Path("diagnostics", f"processes-{timestamp}.xml"), args.serial
+            )
+            detection = detect_screen(dump.hierarchy)
+            if detection.state is not ScreenState.PROCESSES:
+                raise ProcessParseError(
+                    f"expected PROCESSES, observed {detection.state.value}"
+                )
+            snapshot = parse_process_list(dump.hierarchy)
+        except (ADBError, OSError, ProcessParseError, ValueError) as exc:
+            print(f"Process inspection failed: {exc}", file=sys.stderr)
+            return 1
+
+        processes = (
+            snapshot.processes if args.all_exposed else snapshot.visible_processes
+        )
+        active_count = (
+            str(snapshot.active_task_count)
+            if snapshot.active_task_count is not None
+            else "unknown"
+        )
+        print("STATE: PROCESSES")
+        print(f"Inferred filter: {infer_selected_process_filter(snapshot).value}")
+        print(f"Active tasks: {active_count}")
+        print(f"Process cards exposed: {len(snapshot.processes)}")
+        print(f"Process cards visible: {len(snapshot.visible_processes)}")
+        for process in processes:
+            level = f"Lv.{process.level}" if process.level is not None else "level unknown"
+            progress = (
+                f"{process.progress_percent}%"
+                if process.progress_percent is not None
+                else "progress unknown"
+            )
+            visibility = "visible" if process.visible else "outside viewport"
+            print(
+                f"Process {process.process_id}: {process.name or 'unknown'} | "
+                f"{level} | {process.state.value} | {progress} | {visibility}"
+            )
+            details = []
+            if process.ip_address is not None:
+                details.append(f"IP {process.ip_address}")
+            if process.success_chance_percent is not None:
+                details.append(f"chance {process.success_chance_percent}%")
+            if process.game_tags:
+                details.append(f"tags {', '.join(process.game_tags)}")
+            if process.system_markers:
+                details.append(f"markers {', '.join(process.system_markers)}")
+            if process.available_actions:
+                details.append(f"actions {', '.join(process.available_actions)}")
+            if details:
+                print(f"  {' | '.join(details)}")
+        print(f"UI hierarchy: {dump.path}")
+        return 0
+
+    if args.command == "process-filter":
+        destination = ProcessFilter(args.filter.upper())
+        client = ADBClient(adb_path=args.adb_path)
+        try:
+            controller = ProcessFilterController(
+                client,
+                HumanizedInput(InputSettings.from_environment()),
+                NavigationSettings.from_environment(),
+                event_handler=print,
+            )
+            result = controller.select(destination, args.serial)
+        except (
+            ADBError,
+            ConfigurationError,
+            OSError,
+            ProcessFilterError,
+            ProcessParseError,
+            ValueError,
+        ) as exc:
+            print(f"Process filter selection failed: {exc}", file=sys.stderr)
+            _save_process_filter_failure_diagnostics(client, args.serial)
+            return 1
+
+        if result.tap is None:
+            print(f"Already at process filter: {result.destination.value}")
+        else:
+            print(f"Verified after observations: {result.observations}")
+            print(f"Action attempts: {result.attempts}")
+        print(f"PROCESS FILTER: {result.destination.value}")
+        return 0
+
+    if args.command == "scroll-processes":
+        direction = ScrollDirection(args.direction.upper())
+        client = ADBClient(adb_path=args.adb_path)
+        try:
+            scroller = ProcessScroller(
+                client,
+                HumanizedInput(InputSettings.from_environment()),
+                NavigationSettings.from_environment(),
+                event_handler=print,
+            )
+            result = scroller.scroll_once(direction, args.serial)
+        except (
+            ADBError,
+            ConfigurationError,
+            OSError,
+            ProcessParseError,
+            ProcessScrollError,
+            ValueError,
+        ) as exc:
+            print(f"Process scroll failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"Process filter: {result.filter.value}")
+        print(f"Before visible: {', '.join(result.before_visible_ids) or 'none'}")
+        print(f"After visible: {', '.join(result.after_visible_ids) or 'none'}")
+        print(f"Reached boundary: {'yes' if result.reached_boundary else 'no'}")
+        print(f"Action attempts: {result.attempts}")
+        return 0
+
     return 2
 
 
@@ -227,3 +386,21 @@ def _save_navigation_failure_diagnostics(
         return
     print(f"Failure UI hierarchy: {ui.path}", file=sys.stderr)
     print(f"Failure screenshot: {screenshot.path}", file=sys.stderr)
+
+
+def _save_process_filter_failure_diagnostics(
+    client: ADBClient, serial: str | None
+) -> None:
+    timestamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+    try:
+        ui = client.capture_ui_hierarchy(
+            Path("diagnostics", f"filter-failure-{timestamp}.xml"), serial
+        )
+        screenshot = client.capture_screenshot(
+            Path("diagnostics", f"filter-failure-{timestamp}.png"), serial
+        )
+    except (ADBError, OSError, ValueError) as exc:
+        print(f"Filter failure diagnostics unavailable: {exc}", file=sys.stderr)
+        return
+    print(f"Filter failure UI hierarchy: {ui.path}", file=sys.stderr)
+    print(f"Filter failure screenshot: {screenshot.path}", file=sys.stderr)

@@ -11,9 +11,23 @@ from hackex2.config import InputSettings
 class FakeADBClient:
     def __init__(self) -> None:
         self.taps: list[tuple[str, int, int]] = []
+        self.swipes: list[tuple[str, int, int, int, int, int]] = []
 
     def tap(self, serial: str, x: int, y: int) -> None:
         self.taps.append((serial, x, y))
+
+    def swipe(
+        self,
+        serial: str,
+        start_x: int,
+        start_y: int,
+        end_x: int,
+        end_y: int,
+        duration_ms: int,
+    ) -> None:
+        self.swipes.append(
+            (serial, start_x, start_y, end_x, end_y, duration_ms)
+        )
 
 
 class HumanizedInputTest(unittest.TestCase):
@@ -59,6 +73,34 @@ class HumanizedInputTest(unittest.TestCase):
         self.assertEqual(delays, [0.25])
         self.assertEqual(client.taps, [("R5CY235KPLP", 451, 2220)])
         self.assertEqual(plan.delay_ms, 250)
+
+    def test_plans_upward_swipe_inside_detected_scroll_region(self) -> None:
+        delays: list[float] = []
+        client = FakeADBClient()
+        humanized = HumanizedInput(
+            InputSettings(
+                min_action_delay_ms=200,
+                max_action_delay_ms=200,
+                tap_random_radius_px=12,
+                min_swipe_duration_ms=400,
+                max_swipe_duration_ms=400,
+                swipe_random_radius_px=10,
+            ),
+            random_source=random.Random(3),
+            sleeper=delays.append,
+        )
+        bounds = Bounds(45, 452, 1035, 2137)
+
+        plan = humanized.swipe_vertical(
+            client, "R5CY235KPLP", bounds, upward=True
+        )
+
+        self.assertTrue(bounds.left < plan.start_x < bounds.right)
+        self.assertTrue(bounds.left < plan.end_x < bounds.right)
+        self.assertTrue(bounds.top < plan.end_y < plan.start_y < bounds.bottom)
+        self.assertEqual(plan.duration_ms, 400)
+        self.assertEqual(delays, [0.2])
+        self.assertEqual(len(client.swipes), 1)
 
 
 if __name__ == "__main__":

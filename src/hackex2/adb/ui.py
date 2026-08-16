@@ -42,6 +42,8 @@ class UIElement:
     clickable: bool
     enabled: bool
     bounds: Bounds
+    path: tuple[int, ...] = ()
+    scrollable: bool = False
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,17 @@ class UIHierarchy:
             )
         )
 
+    def descendants_of(self, parent: UIElement) -> tuple[UIElement, ...]:
+        if not parent.path:
+            return ()
+        prefix_length = len(parent.path)
+        return tuple(
+            element
+            for element in self.elements
+            if len(element.path) > prefix_length
+            and element.path[:prefix_length] == parent.path
+        )
+
 
 @dataclass(frozen=True)
 class UIHierarchyDump:
@@ -105,13 +118,23 @@ def parse_ui_hierarchy(raw_xml: str) -> UIHierarchy:
     if root.tag != "hierarchy":
         raise UIHierarchyError(f"unexpected UI hierarchy root element: {root.tag!r}")
 
-    elements = tuple(_parse_element(node) for node in root.iter("node"))
+    elements = tuple(_walk_elements(root))
     if not elements:
         raise UIHierarchyError("UI hierarchy contains no UI elements")
     return UIHierarchy(raw_xml=raw_xml, elements=elements)
 
 
-def _parse_element(node: ET.Element) -> UIElement:
+def _walk_elements(
+    parent: ET.Element, parent_path: tuple[int, ...] = ()
+):
+    for child_index, child in enumerate(parent):
+        child_path = (*parent_path, child_index)
+        if child.tag == "node":
+            yield _parse_element(child, child_path)
+        yield from _walk_elements(child, child_path)
+
+
+def _parse_element(node: ET.Element, path: tuple[int, ...]) -> UIElement:
     return UIElement(
         text=node.get("text", ""),
         resource_id=node.get("resource-id", ""),
@@ -121,6 +144,8 @@ def _parse_element(node: ET.Element) -> UIElement:
         clickable=_parse_bool(node.get("clickable")),
         enabled=_parse_bool(node.get("enabled")),
         bounds=_parse_bounds(node.get("bounds", "")),
+        path=path,
+        scrollable=_parse_bool(node.get("scrollable")),
     )
 
 
@@ -136,4 +161,3 @@ def _parse_bounds(value: str) -> Bounds:
     if right < left or bottom < top:
         raise UIHierarchyError(f"inverted UI element bounds: {value!r}")
     return Bounds(left, top, right, bottom)
-

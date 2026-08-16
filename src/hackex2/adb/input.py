@@ -19,6 +19,16 @@ class TapPlan:
     delay_ms: int
 
 
+@dataclass(frozen=True)
+class SwipePlan:
+    start_x: int
+    start_y: int
+    end_x: int
+    end_y: int
+    duration_ms: int
+    delay_ms: int
+
+
 class HumanizedInput:
     def __init__(
         self,
@@ -61,6 +71,79 @@ class HumanizedInput:
         client.tap(serial, plan.x, plan.y)
         return plan
 
+    def plan_vertical_swipe(self, bounds: Bounds, *, upward: bool) -> SwipePlan:
+        if bounds.width < 3 or bounds.height < 100:
+            raise ADBError(f"swipe target is too small: {bounds}")
+        center_x, _ = bounds.center
+        upper_y = bounds.top + bounds.height // 4
+        lower_y = bounds.top + (bounds.height * 5) // 6
+        radius = self.settings.swipe_random_radius_px
+        start_y_center, end_y_center = (
+            (lower_y, upper_y) if upward else (upper_y, lower_y)
+        )
+        start_x = _distributed_coordinate(
+            self.random,
+            center_x,
+            max(bounds.left + 1, center_x - radius),
+            min(bounds.right - 1, center_x + radius),
+            radius,
+        )
+        end_x = _distributed_coordinate(
+            self.random,
+            center_x,
+            max(bounds.left + 1, center_x - radius),
+            min(bounds.right - 1, center_x + radius),
+            radius,
+        )
+        start_y = _distributed_coordinate(
+            self.random,
+            start_y_center,
+            max(bounds.top + 1, start_y_center - radius),
+            min(bounds.bottom - 1, start_y_center + radius),
+            radius,
+        )
+        end_y = _distributed_coordinate(
+            self.random,
+            end_y_center,
+            max(bounds.top + 1, end_y_center - radius),
+            min(bounds.bottom - 1, end_y_center + radius),
+            radius,
+        )
+        return SwipePlan(
+            start_x=start_x,
+            start_y=start_y,
+            end_x=end_x,
+            end_y=end_y,
+            duration_ms=self.random.randint(
+                self.settings.min_swipe_duration_ms,
+                self.settings.max_swipe_duration_ms,
+            ),
+            delay_ms=self.random.randint(
+                self.settings.min_action_delay_ms,
+                self.settings.max_action_delay_ms,
+            ),
+        )
+
+    def swipe_vertical(
+        self,
+        client: ADBClient,
+        serial: str,
+        bounds: Bounds,
+        *,
+        upward: bool,
+    ) -> SwipePlan:
+        plan = self.plan_vertical_swipe(bounds, upward=upward)
+        self.sleeper(plan.delay_ms / 1000)
+        client.swipe(
+            serial,
+            plan.start_x,
+            plan.start_y,
+            plan.end_x,
+            plan.end_y,
+            plan.duration_ms,
+        )
+        return plan
+
 
 def _distributed_coordinate(
     random_source: random.Random,
@@ -76,4 +159,3 @@ def _distributed_coordinate(
     standard_deviation = max(radius / 2, 1)
     sampled = round(random_source.gauss(center, standard_deviation))
     return min(max(sampled, minimum), maximum)
-

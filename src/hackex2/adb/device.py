@@ -189,6 +189,32 @@ class ADBClient:
             raise ADBError("tap coordinates must be zero or greater")
         self._run("-s", serial, "shell", "input", "tap", str(x), str(y))
 
+    def swipe(
+        self,
+        serial: str,
+        start_x: int,
+        start_y: int,
+        end_x: int,
+        end_y: int,
+        duration_ms: int,
+    ) -> None:
+        if min(start_x, start_y, end_x, end_y) < 0:
+            raise ADBError("swipe coordinates must be zero or greater")
+        if duration_ms < 1:
+            raise ADBError("swipe duration must be at least 1 ms")
+        self._run(
+            "-s",
+            serial,
+            "shell",
+            "input",
+            "swipe",
+            str(start_x),
+            str(start_y),
+            str(end_x),
+            str(end_y),
+            str(duration_ms),
+        )
+
 
 def parse_devices(output: str) -> list[ADBDevice]:
     devices: list[ADBDevice] = []

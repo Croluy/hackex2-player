@@ -35,6 +35,8 @@ from hackex2.target_dashboard import (
     TargetDashboardParseError,
     parse_target_dashboard,
 )
+from hackex2.target_log_actions import TargetLogActionError, TargetLogController
+from hackex2.target_log import TargetLogParseError, parse_target_log
 from hackex2.target_wallet import (
     TargetWalletParseError,
     parse_target_wallet_authenticated,
@@ -140,6 +142,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="submit a verified prefilled target-wallet Login once",
     )
     add_adb_arguments(login_wallet_parser)
+
+    open_log_parser = subparsers.add_parser(
+        "open-target-log",
+        help="open Log from a verified target dashboard",
+    )
+    add_adb_arguments(open_log_parser)
+
+    inspect_log_parser = subparsers.add_parser(
+        "inspect-target-log",
+        help="classify the currently open target Log",
+    )
+    add_adb_arguments(inspect_log_parser)
+
+    clear_log_parser = subparsers.add_parser(
+        "clear-target-log",
+        help="clear and save an editable target Log",
+    )
+    add_adb_arguments(clear_log_parser)
+
+    disconnect_log_parser = subparsers.add_parser(
+        "disconnect-target-log",
+        help="disconnect only from a saved or locked target Log",
+    )
+    add_adb_arguments(disconnect_log_parser)
 
     filter_parser = subparsers.add_parser(
         "process-filter", help="select and verify a typed process filter"
@@ -492,6 +518,86 @@ def main(argv: Sequence[str] | None = None) -> int:
             ValueError,
         ) as exc:
             print(f"Target wallet action failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "open-target-log":
+        controller = TargetLogController(
+            ADBClient(adb_path=args.adb_path),
+            HumanizedInput(InputSettings.from_environment()),
+            NavigationSettings.from_environment(),
+            event_handler=print,
+        )
+        try:
+            result = controller.open_from_dashboard(args.serial)
+        except (
+            ADBError,
+            ConfigurationError,
+            OSError,
+            TargetDashboardParseError,
+            TargetLogActionError,
+            ValueError,
+        ) as exc:
+            print(f"Target Log action failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"STATE: {result.source.value}")
+        print(f"Verified after observations: {result.observations}")
+        print(f"Action attempts: {result.attempts}")
+        print(f"STATE: {result.destination.value}")
+        return 0
+
+    if args.command == "inspect-target-log":
+        timestamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+        client = ADBClient(adb_path=args.adb_path)
+        try:
+            dump = client.capture_ui_hierarchy(
+                Path("diagnostics", f"target-log-{timestamp}.xml"), args.serial
+            )
+            detection = detect_screen(dump.hierarchy)
+            if detection.state is not ScreenState.TARGET_LOG:
+                raise TargetLogParseError(
+                    f"expected TARGET_LOG, observed {detection.state.value}"
+                )
+            log = parse_target_log(dump.hierarchy)
+        except (ADBError, OSError, TargetLogParseError, ValueError) as exc:
+            print(f"Target Log inspection failed: {exc}", file=sys.stderr)
+            return 1
+        print("STATE: TARGET_LOG")
+        print(f"Log branch: {log.variant.value}")
+        print(f"Has content: {'yes' if log.has_content else 'no'}")
+        print(f"Content length: {log.content_length}")
+        print(f"SAVE enabled: {'yes' if log.save_enabled else 'no'}")
+        print(f"Lock evidence: {', '.join(log.lock_evidence) or 'none'}")
+        print(f"UI hierarchy: {dump.path}")
+        return 0
+
+    if args.command in {"clear-target-log", "disconnect-target-log"}:
+        controller = TargetLogController(
+            ADBClient(adb_path=args.adb_path),
+            HumanizedInput(InputSettings.from_environment()),
+            NavigationSettings.from_environment(),
+            event_handler=print,
+        )
+        try:
+            if args.command == "clear-target-log":
+                result = controller.clear_and_save(args.serial)
+                print(f"Log result: {result.status.value}")
+                print(f"Initial content length: {result.initial_content_length}")
+                print(f"Observations: {result.observations}")
+            else:
+                result = controller.disconnect(args.serial)
+                print(f"STATE: {result.source.value}")
+                print(f"Verified after observations: {result.observations}")
+                print(f"STATE: {result.destination.value}")
+        except (
+            ADBError,
+            ConfigurationError,
+            OSError,
+            TargetLogActionError,
+            TargetLogParseError,
+            ValueError,
+        ) as exc:
+            print(f"Target Log action failed: {exc}", file=sys.stderr)
             return 1
         return 0
 

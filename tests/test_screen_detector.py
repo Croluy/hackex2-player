@@ -192,6 +192,31 @@ class ScreenDetectorTest(unittest.TestCase):
         self.assertEqual(detection.confidence, 1.0)
         self.assertEqual(len(detection.evidence), 5)
 
+    def test_detects_target_log_even_when_editor_and_save_are_disabled(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(text="// VICTIM LOG"),
+                (
+                    "<node text='existing log data' resource-id='' "
+                    "class='android.widget.EditText' "
+                    "package='net.cncapps.hackex2' content-desc='' "
+                    "clickable='true' enabled='false' bounds='[45,455][1035,2200]' />"
+                ),
+                (
+                    "<node text='SAVE' resource-id='' class='android.widget.Button' "
+                    "package='net.cncapps.hackex2' content-desc='' "
+                    "clickable='true' enabled='false' bounds='[869,233][1035,340]' />"
+                ),
+                node(text="DISCONNECT", clickable=True),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.TARGET_LOG)
+        self.assertEqual(detection.confidence, 1.0)
+        self.assertEqual(len(detection.evidence), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

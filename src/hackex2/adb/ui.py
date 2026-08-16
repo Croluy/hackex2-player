@@ -44,6 +44,7 @@ class UIElement:
     bounds: Bounds
     path: tuple[int, ...] = ()
     scrollable: bool = False
+    focused: bool = False
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,7 @@ def _parse_element(node: ET.Element, path: tuple[int, ...]) -> UIElement:
         bounds=_parse_bounds(node.get("bounds", "")),
         path=path,
         scrollable=_parse_bool(node.get("scrollable")),
+        focused=_parse_bool(node.get("focused")),
     )
 
 

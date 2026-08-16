@@ -128,6 +128,10 @@ After login, the authenticated Wallet is classified as `TRANSFERABLE`, `PROTECTE
 
 Screen recognition is theme-independent: screenshots are diagnostic artifacts only. Automation relies on accessible text, enabled/clickable properties, and structural relationships between UI elements, never on wallpaper, button backgrounds, colors, or pixel matching.
 
+`open-target-log` opens the target Log only from a verified dashboard and accepts the destination only when the accessible `// VICTIM LOG`, editor, Save, and Disconnect structure is present. Disabled editor and Save controls remain recognizable so locked and already-saved branches can be modeled independently.
+
+`inspect-target-log` classifies the Log as editable, locked, or saved without printing its contents. `clear-target-log` skips locked or already-saved branches; otherwise it verifies editor focus, selects and deletes all text with Android key events, confirms the editor is empty, hides the keyboard, saves once, and requires an empty editor with disabled Save. `disconnect-target-log` refuses to disconnect until that saved state or an explicit lock is present, then verifies the return to `PROCESSES` without retrying Disconnect.
+
 ## Focused test
 
 ```bash

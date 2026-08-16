@@ -215,6 +215,19 @@ class ADBClient:
             str(duration_ms),
         )
 
+    def key_event(self, serial: str, keycode: str) -> None:
+        _validate_keycode(keycode)
+        self._run("-s", serial, "shell", "input", "keyevent", keycode)
+
+    def key_combination(self, serial: str, *keycodes: str) -> None:
+        if len(keycodes) < 2:
+            raise ADBError("key combination requires at least two keycodes")
+        for keycode in keycodes:
+            _validate_keycode(keycode)
+        self._run(
+            "-s", serial, "shell", "input", "keycombination", *keycodes
+        )
+
 
 def parse_devices(output: str) -> list[ADBDevice]:
     devices: list[ADBDevice] = []
@@ -261,3 +274,8 @@ def parse_png_size(image: bytes) -> tuple[int, int]:
     if width < 1 or height < 1:
         raise ADBError("ADB screenshot PNG reports an invalid resolution")
     return width, height
+
+
+def _validate_keycode(keycode: str) -> None:
+    if re.fullmatch(r"KEYCODE_[A-Z0-9_]+", keycode) is None:
+        raise ADBError(f"invalid Android keycode: {keycode!r}")

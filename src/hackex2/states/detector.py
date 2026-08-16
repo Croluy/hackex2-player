@@ -14,6 +14,7 @@ class ScreenState(str, Enum):
     TARGET_DASHBOARD = "TARGET_DASHBOARD"
     TARGET_WALLET_LOGIN = "TARGET_WALLET_LOGIN"
     TARGET_WALLET_AUTHENTICATED = "TARGET_WALLET_AUTHENTICATED"
+    TARGET_LOG = "TARGET_LOG"
     UNKNOWN_SCREEN = "UNKNOWN_SCREEN"
 
 
@@ -32,19 +33,22 @@ class _Marker:
     resource_id: str | None = None
     content_description: str | None = None
     text_contains: str | None = None
+    class_name: str | None = None
     clickable: bool | None = None
+    enabled: bool | None = True
 
     def matches(self, element: UIElement) -> bool:
         return (
             (self.text is None or element.text == self.text)
             and (self.text_contains is None or self.text_contains in element.text)
+            and (self.class_name is None or element.class_name == self.class_name)
             and (self.resource_id is None or element.resource_id == self.resource_id)
             and (
                 self.content_description is None
                 or element.content_description == self.content_description
             )
             and (self.clickable is None or element.clickable is self.clickable)
-            and element.enabled
+            and (self.enabled is None or element.enabled is self.enabled)
             and element.bounds.width > 0
             and element.bounds.height > 0
         )
@@ -108,6 +112,17 @@ _TARGET_WALLET_AUTHENTICATED_MARKERS = (
     _Marker(name="target disconnect action", text="DISCONNECT", clickable=True),
 )
 
+_TARGET_LOG_MARKERS = (
+    _Marker(name="target Log heading", text="// VICTIM LOG"),
+    _Marker(
+        name="target Log editor",
+        class_name="android.widget.EditText",
+        enabled=None,
+    ),
+    _Marker(name="target Log Save control", text="SAVE", enabled=None),
+    _Marker(name="target disconnect action", text="DISCONNECT", clickable=True),
+)
+
 
 def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
     if "net.cncapps.hackex2" not in hierarchy.packages:
@@ -133,6 +148,7 @@ def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
             ScreenState.TARGET_WALLET_AUTHENTICATED,
             _match_markers(_TARGET_WALLET_AUTHENTICATED_MARKERS, hierarchy),
         ),
+        (ScreenState.TARGET_LOG, _match_markers(_TARGET_LOG_MARKERS, hierarchy)),
     )
     complete = tuple(
         (state, matched, missing)

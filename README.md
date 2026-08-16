@@ -59,7 +59,7 @@ The command validates and parses the UIAutomator XML, reports the visible and cl
 .venv/bin/python -m hackex2 detect-screen
 ```
 
-The supported states are `HOME` and `PROCESSES`. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
+The supported states are `HOME`, `PROCESSES`, and `TARGET_DASHBOARD`. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
 
 ## Humanized input configuration
 
@@ -107,6 +107,14 @@ The unlabelled filter buttons are located relative to the accessible `ALL` contr
 ```
 
 The swipe stays inside the detected scrollable process region. The command verifies that the selected filter is unchanged and that the visible process signature moved. It detects the first or last exposed process as a boundary rather than assuming a fixed number of swipes.
+
+## Inspect a connected target
+
+```bash
+.venv/bin/python -m hackex2 inspect-target
+```
+
+The command requires a verified `TARGET_DASHBOARD` and parses the observed identity, level, reputation, score, XP, IPv4 address, device, network, firewall, encryptor, and available actions. It only reads the UI hierarchy and never opens Wallet, Apps, Processes, Log, Crews, or Disconnect.
 
 ## Focused test
 

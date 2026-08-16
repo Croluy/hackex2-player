@@ -103,6 +103,44 @@ class ScreenDetectorTest(unittest.TestCase):
         self.assertEqual(detection.confidence, 1.0)
         self.assertEqual(len(detection.evidence), 4)
 
+    def test_detects_target_dashboard_only_with_all_independent_markers(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(text="CONNECTED"),
+                node(text="DISCONNECT", clickable=True),
+                node(text="// XP PROGRESS"),
+                node(text="WALLET", clickable=True),
+                node(text="APPS", clickable=True),
+                node(text="LOG", clickable=True),
+                node(text="CREWS", clickable=True),
+                node(text="// SYSTEM INFO"),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.TARGET_DASHBOARD)
+        self.assertEqual(detection.confidence, 1.0)
+        self.assertEqual(len(detection.evidence), 8)
+
+    def test_does_not_confuse_partial_target_dashboard_with_home(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(text="CONNECTED"),
+                node(text="DISCONNECT", clickable=True),
+                node(text="// XP PROGRESS"),
+                node(text="WALLET", clickable=True),
+                node(text="APPS", clickable=True),
+                node(text="LOG", clickable=True),
+                node(text="// SYSTEM INFO"),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.UNKNOWN_SCREEN)
+        self.assertIn("target Crews action", detection.missing_evidence)
+
 
 if __name__ == "__main__":
     unittest.main()

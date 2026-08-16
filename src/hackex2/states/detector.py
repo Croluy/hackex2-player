@@ -11,6 +11,7 @@ from hackex2.adb.ui import UIElement, UIHierarchy
 class ScreenState(str, Enum):
     HOME = "HOME"
     PROCESSES = "PROCESSES"
+    TARGET_DASHBOARD = "TARGET_DASHBOARD"
     UNKNOWN_SCREEN = "UNKNOWN_SCREEN"
 
 
@@ -74,6 +75,17 @@ _PROCESSES_MARKERS = (
     _Marker(name="all-processes filter", text="ALL", clickable=True),
 )
 
+_TARGET_DASHBOARD_MARKERS = (
+    _Marker(name="target connection status", text="CONNECTED"),
+    _Marker(name="target disconnect action", text="DISCONNECT", clickable=True),
+    _Marker(name="target XP progress panel", text="// XP PROGRESS"),
+    _Marker(name="target Wallet action", text="WALLET", clickable=True),
+    _Marker(name="target Apps action", text="APPS", clickable=True),
+    _Marker(name="target Log action", text="LOG", clickable=True),
+    _Marker(name="target Crews action", text="CREWS", clickable=True),
+    _Marker(name="target system information panel", text="// SYSTEM INFO"),
+)
+
 
 def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
     if "net.cncapps.hackex2" not in hierarchy.packages:
@@ -87,6 +99,10 @@ def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
     candidates = (
         (ScreenState.HOME, _match_markers(_HOME_MARKERS, hierarchy)),
         (ScreenState.PROCESSES, _match_markers(_PROCESSES_MARKERS, hierarchy)),
+        (
+            ScreenState.TARGET_DASHBOARD,
+            _match_markers(_TARGET_DASHBOARD_MARKERS, hierarchy),
+        ),
     )
     complete = tuple(
         (state, matched, missing)

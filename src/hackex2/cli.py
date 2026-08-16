@@ -31,6 +31,10 @@ from hackex2.process_scroller import (
     ScrollDirection,
 )
 from hackex2.states import ScreenState, detect_screen
+from hackex2.target_dashboard import (
+    TargetDashboardParseError,
+    parse_target_dashboard,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include zero-sized process cards exposed outside the viewport",
     )
+
+    target_parser = subparsers.add_parser(
+        "inspect-target", help="parse the currently connected target dashboard"
+    )
+    add_adb_arguments(target_parser)
 
     filter_parser = subparsers.add_parser(
         "process-filter", help="select and verify a typed process filter"
@@ -305,6 +314,44 @@ def main(argv: Sequence[str] | None = None) -> int:
                 details.append(f"actions {', '.join(process.available_actions)}")
             if details:
                 print(f"  {' | '.join(details)}")
+        print(f"UI hierarchy: {dump.path}")
+        return 0
+
+    if args.command == "inspect-target":
+        timestamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+        client = ADBClient(adb_path=args.adb_path)
+        try:
+            dump = client.capture_ui_hierarchy(
+                Path("diagnostics", f"target-dashboard-{timestamp}.xml"), args.serial
+            )
+            detection = detect_screen(dump.hierarchy)
+            if detection.state is not ScreenState.TARGET_DASHBOARD:
+                raise TargetDashboardParseError(
+                    f"expected TARGET_DASHBOARD, observed {detection.state.value}"
+                )
+            target = parse_target_dashboard(dump.hierarchy)
+        except (ADBError, OSError, TargetDashboardParseError, ValueError) as exc:
+            print(f"Target inspection failed: {exc}", file=sys.stderr)
+            return 1
+
+        crew = f" [{target.crew_tag}]" if target.crew_tag is not None else ""
+        print("STATE: TARGET_DASHBOARD")
+        print(f"Identity: {target.username}{crew}")
+        print(
+            f"Level: {target.level} | Reputation: {target.reputation} | "
+            f"Score: {target.score}"
+        )
+        print(
+            f"XP: {target.xp_current} / {target.xp_required} "
+            f"({target.xp_percent}%)"
+        )
+        print(f"IP: {target.ip_address}")
+        print(f"Device: {target.device} | Network: {target.network}")
+        print(
+            f"Firewall: Lv.{target.firewall_level} | "
+            f"Encryptor: Lv.{target.encryptor_level}"
+        )
+        print(f"Available actions: {', '.join(target.available_actions)}")
         print(f"UI hierarchy: {dump.path}")
         return 0
 

@@ -4,7 +4,7 @@ Private, state-aware automation for HackEx2 running on macOS and controlling an 
 
 ## Current milestone
 
-The project can discover one authorized Android device, report its model, and read its effective screen resolution. It does not interact with the game yet.
+The project can discover one authorized Android device, report its model and effective screen resolution, and capture a verified PNG screenshot. It does not interact with the game yet.
 
 ## Requirements
 
@@ -37,9 +37,16 @@ Model: <model>
 Resolution: <width>x<height>
 ```
 
+## Capture a screenshot
+
+```bash
+.venv/bin/python -m hackex2 screenshot
+```
+
+The command validates the PNG returned by ADB and saves it under `diagnostics/`. That directory is intentionally excluded from Git.
+
 ## Focused test
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 ```
-

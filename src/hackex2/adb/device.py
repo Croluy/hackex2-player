@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import struct
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 class ADBError(RuntimeError):
@@ -22,6 +24,15 @@ class ADBDevice:
     @property
     def model(self) -> str:
         return self.properties.get("model", "unknown")
+
+
+@dataclass(frozen=True)
+class Screenshot:
+    path: Path
+    serial: str
+    width: int
+    height: int
+    byte_count: int
 
 
 class ADBClient:
@@ -45,6 +56,24 @@ class ADBClient:
 
         if completed.returncode != 0:
             detail = completed.stderr.strip() or completed.stdout.strip()
+            raise ADBError(detail or f"ADB exited with code {completed.returncode}")
+        return completed.stdout
+
+    def _run_binary(self, *arguments: str) -> bytes:
+        try:
+            completed = subprocess.run(
+                [self.adb_path, *arguments],
+                check=False,
+                capture_output=True,
+                timeout=self.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ADBError(
+                f"ADB timed out after {self.timeout_seconds:g} seconds"
+            ) from exc
+
+        if completed.returncode != 0:
+            detail = completed.stderr.decode(errors="replace").strip()
             raise ADBError(detail or f"ADB exited with code {completed.returncode}")
         return completed.stdout
 
@@ -92,6 +121,32 @@ class ADBClient:
             height=height,
         )
 
+    def capture_screenshot(
+        self, output_path: str | Path, serial: str | None = None
+    ) -> Screenshot:
+        selected = self.select_device(serial)
+        image = self._run_binary(
+            "-s", selected.serial, "exec-out", "screencap", "-p"
+        )
+        width, height = parse_png_size(image)
+
+        destination = Path(output_path).expanduser().resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(f"{destination.suffix}.tmp")
+        try:
+            temporary.write_bytes(image)
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+        return Screenshot(
+            path=destination,
+            serial=selected.serial,
+            width=width,
+            height=height,
+            byte_count=len(image),
+        )
+
 
 def parse_devices(output: str) -> list[ADBDevice]:
     devices: list[ADBDevice] = []
@@ -127,3 +182,14 @@ def parse_screen_size(output: str) -> tuple[int, int]:
         return sizes["physical"]
     raise ADBError(f"could not parse screen size from ADB output: {output.strip()!r}")
 
+
+def parse_png_size(image: bytes) -> tuple[int, int]:
+    png_signature = b"\x89PNG\r\n\x1a\n"
+    if len(image) < 24 or not image.startswith(png_signature):
+        raise ADBError("ADB screenshot output is not a valid PNG")
+    if image[12:16] != b"IHDR":
+        raise ADBError("ADB screenshot PNG does not contain an IHDR header")
+    width, height = struct.unpack(">II", image[16:24])
+    if width < 1 or height < 1:
+        raise ADBError("ADB screenshot PNG reports an invalid resolution")
+    return width, height

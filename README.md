@@ -45,6 +45,22 @@ Resolution: <width>x<height>
 
 The command validates the PNG returned by ADB and saves it under `diagnostics/`. That directory is intentionally excluded from Git.
 
+## Inspect the Android UI hierarchy
+
+```bash
+.venv/bin/python -m hackex2 ui-dump
+```
+
+The command validates and parses the UIAutomator XML, reports the visible and clickable element counts, and stores the diagnostic XML under `diagnostics/`.
+
+## Detect the current screen
+
+```bash
+.venv/bin/python -m hackex2 detect-screen
+```
+
+The first supported state is `HOME`. Detection requires all configured HOME markers; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
+
 ## Focused test
 
 ```bash

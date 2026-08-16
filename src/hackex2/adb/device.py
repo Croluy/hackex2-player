@@ -8,6 +8,12 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hackex2.adb.ui import (
+    UIHierarchyDump,
+    extract_hierarchy_xml,
+    parse_ui_hierarchy,
+)
+
 
 class ADBError(RuntimeError):
     """Raised when ADB cannot provide a safe, unambiguous device."""
@@ -145,6 +151,37 @@ class ADBClient:
             width=width,
             height=height,
             byte_count=len(image),
+        )
+
+    def capture_ui_hierarchy(
+        self, output_path: str | Path | None = None, serial: str | None = None
+    ) -> UIHierarchyDump:
+        selected = self.select_device(serial)
+        output = self._run(
+            "-s",
+            selected.serial,
+            "exec-out",
+            "uiautomator",
+            "dump",
+            "/dev/tty",
+        )
+        hierarchy = parse_ui_hierarchy(extract_hierarchy_xml(output))
+
+        destination: Path | None = None
+        if output_path is not None:
+            destination = Path(output_path).expanduser().resolve()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_suffix(f"{destination.suffix}.tmp")
+            try:
+                temporary.write_text(hierarchy.raw_xml, encoding="utf-8")
+                temporary.replace(destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+        return UIHierarchyDump(
+            serial=selected.serial,
+            hierarchy=hierarchy,
+            path=destination,
         )
 
 

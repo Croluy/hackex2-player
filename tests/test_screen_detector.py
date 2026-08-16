@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import unittest
+
+from hackex2.adb.ui import parse_ui_hierarchy
+from hackex2.states import ScreenState, detect_screen
+
+
+def hierarchy_xml(*nodes: str, package: str = "net.cncapps.hackex2") -> str:
+    return (
+        "<?xml version='1.0' encoding='UTF-8' ?>"
+        "<hierarchy rotation='0'>"
+        f"<node text='' resource-id='' class='android.webkit.WebView' "
+        f"package='{package}' content-desc='' clickable='false' enabled='true' "
+        "bounds='[0,0][1080,2340]'>"
+        f"{''.join(nodes)}"
+        "</node></hierarchy>"
+    )
+
+
+def node(
+    *,
+    text: str = "",
+    resource_id: str = "",
+    content_description: str = "",
+    clickable: bool = False,
+) -> str:
+    return (
+        f"<node text='{text}' resource-id='{resource_id}' "
+        "class='android.view.View' package='net.cncapps.hackex2' "
+        f"content-desc='{content_description}' clickable='{'true' if clickable else 'false'}' "
+        "enabled='true' bounds='[10,10][200,100]' />"
+    )
+
+
+class ScreenDetectorTest(unittest.TestCase):
+    def test_detects_home_only_with_all_independent_markers(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(
+                    text="HOME",
+                    resource_id="nav-item-dashboard",
+                    clickable=True,
+                ),
+                node(text="// XP PROGRESS"),
+                node(content_description="MY DEVICE", clickable=True),
+                node(
+                    resource_id="onboard-scan-btn",
+                    content_description="SCAN",
+                    clickable=True,
+                ),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.HOME)
+        self.assertEqual(detection.confidence, 1.0)
+        self.assertEqual(len(detection.evidence), 4)
+        self.assertEqual(detection.missing_evidence, ())
+
+    def test_reports_unknown_when_a_home_marker_is_missing(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(
+                    text="HOME",
+                    resource_id="nav-item-dashboard",
+                    clickable=True,
+                ),
+                node(content_description="MY DEVICE", clickable=True),
+                node(
+                    resource_id="onboard-scan-btn",
+                    content_description="SCAN",
+                    clickable=True,
+                ),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.UNKNOWN_SCREEN)
+        self.assertEqual(detection.confidence, 0.0)
+        self.assertEqual(detection.missing_evidence, ("XP progress panel",))
+
+
+if __name__ == "__main__":
+    unittest.main()

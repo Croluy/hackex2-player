@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hackex2-player"
+version = "0.1.0"
+description = "Private, state-aware HackEx2 automation for macOS and Android Debug Bridge."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Croluy" }]
+dependencies = []
+
+[project.scripts]
+hackex2 = "hackex2.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.coverage.run]
+branch = true
+source = ["hackex2"]
+

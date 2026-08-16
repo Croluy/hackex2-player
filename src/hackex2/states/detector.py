@@ -12,6 +12,7 @@ class ScreenState(str, Enum):
     HOME = "HOME"
     PROCESSES = "PROCESSES"
     TARGET_DASHBOARD = "TARGET_DASHBOARD"
+    TARGET_WALLET_PASSWORD_REQUIRED = "TARGET_WALLET_PASSWORD_REQUIRED"
     TARGET_WALLET_LOGIN = "TARGET_WALLET_LOGIN"
     TARGET_WALLET_AUTHENTICATED = "TARGET_WALLET_AUTHENTICATED"
     TARGET_LOG = "TARGET_LOG"
@@ -104,6 +105,29 @@ _TARGET_WALLET_LOGIN_MARKERS = (
     _Marker(name="target disconnect action", text="DISCONNECT", clickable=True),
 )
 
+_TARGET_WALLET_PASSWORD_REQUIRED_MARKERS = (
+    _Marker(name="target wallet heading", text="// CRYPTO WALLET"),
+    _Marker(name="wallet Login panel", text="WALLET LOGIN"),
+    _Marker(name="wallet Username label", text="USERNAME"),
+    _Marker(name="wallet Password label", text="PASSWORD"),
+    _Marker(
+        name="wallet encrypted-password level",
+        text_contains="Password encrypted at Lv.",
+    ),
+    _Marker(
+        name="wallet Exploit Kit action",
+        text_contains="USE EXPLOIT KIT",
+        clickable=True,
+    ),
+    _Marker(
+        name="wallet Crack Password action",
+        text_contains="CRACK PASSWORD",
+        clickable=True,
+    ),
+    _Marker(name="target wallet Back action", text="< back", clickable=True),
+    _Marker(name="target disconnect action", text="DISCONNECT", clickable=True),
+)
+
 _TARGET_WALLET_AUTHENTICATED_MARKERS = (
     _Marker(name="target wallet heading", text="// CRYPTO WALLET"),
     _Marker(name="wallet address label", text="WALLET ADDRESS"),
@@ -139,6 +163,10 @@ def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
         (
             ScreenState.TARGET_DASHBOARD,
             _match_markers(_TARGET_DASHBOARD_MARKERS, hierarchy),
+        ),
+        (
+            ScreenState.TARGET_WALLET_PASSWORD_REQUIRED,
+            _match_markers(_TARGET_WALLET_PASSWORD_REQUIRED_MARKERS, hierarchy),
         ),
         (
             ScreenState.TARGET_WALLET_LOGIN,

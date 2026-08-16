@@ -8,6 +8,7 @@ from hackex2.target_wallet import (
     TargetWalletVariant,
     parse_target_wallet_authenticated,
     parse_target_wallet_login,
+    parse_target_wallet_password_required,
     parse_wallet_transfer_confirmation,
 )
 
@@ -47,7 +48,55 @@ def wallet_login_xml(*, login_username: str = "nebthepleb") -> str:
     )
 
 
+def wallet_password_required_xml(
+    *, login_username: str = "H.Y.S", encryptor_level: int = 6, kits: int = 3
+) -> str:
+    return hierarchy_xml(
+        wallet_node(text="&lt; back", bounds="[45,137][143,267]", clickable=True),
+        wallet_node(
+            text="DISCONNECT", bounds="[810,168][1035,236]", clickable=True
+        ),
+        wallet_node(text="// CRYPTO WALLET", bounds="[45,295][1035,340]"),
+        wallet_node(text="H.Y.S&apos;s wallet", bounds="[45,348][1035,393]"),
+        wallet_node(text="WALLET LOGIN", bounds="[191,517][438,562]"),
+        wallet_node(text="USERNAME", bounds="[90,624][202,652]"),
+        wallet_node(text=login_username, bounds="[90,660][990,759]"),
+        wallet_node(text="PASSWORD", bounds="[90,804][202,829]"),
+        wallet_node(text="............", bounds="[90,840][990,939]"),
+        wallet_node(
+            text=f"Password encrypted at Lv.{encryptor_level}",
+            bounds="[90,981][990,1020]",
+        ),
+        wallet_node(
+            text=f"* USE EXPLOIT KIT (x{kits})",
+            bounds="[90,1049][990,1203]",
+            clickable=True,
+        ),
+        wallet_node(
+            text="* CRACK PASSWORD",
+            bounds="[90,1234][990,1389]",
+            clickable=True,
+        ),
+    )
+
+
 class TargetWalletParserTest(unittest.TestCase):
+    def test_parses_password_required_without_using_exploit_kit(self) -> None:
+        wallet = parse_target_wallet_password_required(
+            parse_ui_hierarchy(wallet_password_required_xml())
+        )
+
+        self.assertEqual(wallet.variant, TargetWalletVariant.PASSWORD_REQUIRED)
+        self.assertEqual(wallet.owner_username, "H.Y.S")
+        self.assertEqual(wallet.login_username, "H.Y.S")
+        self.assertEqual(wallet.masked_password_length, 12)
+        self.assertEqual(wallet.encryptor_level, 6)
+        self.assertEqual(wallet.exploit_kit_count, 3)
+        self.assertEqual(
+            wallet.available_actions,
+            ("BACK", "DISCONNECT", "USE_EXPLOIT_KIT", "CRACK_PASSWORD"),
+        )
+
     def test_parses_login_branch_without_exposing_password(self) -> None:
         wallet = parse_target_wallet_login(
             parse_ui_hierarchy(wallet_login_xml())

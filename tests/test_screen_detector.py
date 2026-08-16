@@ -175,6 +175,29 @@ class ScreenDetectorTest(unittest.TestCase):
         self.assertEqual(detection.state, ScreenState.UNKNOWN_SCREEN)
         self.assertIn("wallet Login panel", detection.missing_evidence)
 
+    def test_detects_encrypted_password_wallet_branch_from_accessible_text(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(text="// CRYPTO WALLET"),
+                node(text="WALLET LOGIN"),
+                node(text="USERNAME"),
+                node(text="PASSWORD"),
+                node(text="Password encrypted at Lv.6"),
+                node(text="* USE EXPLOIT KIT (x3)", clickable=True),
+                node(text="* CRACK PASSWORD", clickable=True),
+                node(text="&lt; back", clickable=True),
+                node(text="DISCONNECT", clickable=True),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(
+            detection.state, ScreenState.TARGET_WALLET_PASSWORD_REQUIRED
+        )
+        self.assertEqual(detection.confidence, 1.0)
+        self.assertEqual(len(detection.evidence), 9)
+
     def test_detects_authenticated_wallet_independent_of_transfer_branch(self) -> None:
         hierarchy = parse_ui_hierarchy(
             hierarchy_xml(

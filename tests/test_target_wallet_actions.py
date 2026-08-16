@@ -11,12 +11,17 @@ from hackex2.states import ScreenState
 from hackex2.target_wallet_actions import (
     TargetWalletActionError,
     TargetWalletController,
+    WalletPasswordCrackStatus,
     WalletTransferStatus,
 )
 
 from tests.test_target_dashboard import target_dashboard_xml
 from tests.test_screen_detector import hierarchy_xml, node
-from tests.test_target_wallet import authenticated_wallet_xml, wallet_login_xml
+from tests.test_target_wallet import (
+    authenticated_wallet_xml,
+    wallet_login_xml,
+    wallet_password_required_xml,
+)
 
 
 def wallet_dump(**kwargs) -> UIHierarchyDump:
@@ -151,6 +156,25 @@ class TargetWalletControllerTest(unittest.TestCase):
         self.assertEqual(result.destination, ScreenState.TARGET_DASHBOARD)
         self.assertEqual(len(client.taps), 1)
 
+    def test_returns_from_password_required_wallet(self) -> None:
+        password_required = UIHierarchyDump(
+            serial="R5CY235KPLP",
+            hierarchy=parse_ui_hierarchy(wallet_password_required_xml()),
+        )
+        dashboard = UIHierarchyDump(
+            serial="R5CY235KPLP",
+            hierarchy=parse_ui_hierarchy(target_dashboard_xml()),
+        )
+        client = FakeADBClient([password_required, dashboard])
+
+        result = controller(client).return_to_dashboard()
+
+        self.assertEqual(
+            result.source, ScreenState.TARGET_WALLET_PASSWORD_REQUIRED
+        )
+        self.assertEqual(result.destination, ScreenState.TARGET_DASHBOARD)
+        self.assertEqual(len(client.taps), 1)
+
     def test_waits_through_unknown_after_back_without_extra_tap(self) -> None:
         unknown = UIHierarchyDump(
             serial="R5CY235KPLP",
@@ -184,6 +208,61 @@ class TargetWalletControllerTest(unittest.TestCase):
 
         self.assertEqual(result.source, ScreenState.TARGET_DASHBOARD)
         self.assertEqual(result.destination, ScreenState.TARGET_WALLET_LOGIN)
+        self.assertEqual(len(client.taps), 1)
+
+    def test_opens_password_required_branch_from_verified_dashboard(self) -> None:
+        dashboard = UIHierarchyDump(
+            serial="R5CY235KPLP",
+            hierarchy=parse_ui_hierarchy(target_dashboard_xml()),
+        )
+        password_required = UIHierarchyDump(
+            serial="R5CY235KPLP",
+            hierarchy=parse_ui_hierarchy(wallet_password_required_xml()),
+        )
+        client = FakeADBClient([dashboard, password_required])
+
+        result = controller(client).open_from_dashboard()
+
+        self.assertEqual(
+            result.destination, ScreenState.TARGET_WALLET_PASSWORD_REQUIRED
+        )
+        self.assertEqual(len(client.taps), 1)
+
+    def test_starts_normal_password_crack_once_without_tapping_exploit_kit(self) -> None:
+        password_required = UIHierarchyDump(
+            serial="R5CY235KPLP",
+            hierarchy=parse_ui_hierarchy(wallet_password_required_xml()),
+        )
+        unknown = UIHierarchyDump(
+            serial="R5CY235KPLP",
+            hierarchy=parse_ui_hierarchy(hierarchy_xml(node(text="PASSWORD CRACK"))),
+        )
+        client = FakeADBClient([password_required, unknown, unknown])
+
+        result = controller(client).start_password_crack()
+
+        self.assertEqual(result.source, ScreenState.TARGET_WALLET_PASSWORD_REQUIRED)
+        self.assertEqual(
+            result.status, WalletPasswordCrackStatus.LEFT_PASSWORD_SCREEN
+        )
+        self.assertEqual(result.destination, ScreenState.UNKNOWN_SCREEN)
+        self.assertEqual(len(client.taps), 1)
+
+    def test_does_not_retry_when_password_crack_is_already_queued(self) -> None:
+        password_required = UIHierarchyDump(
+            serial="R5CY235KPLP",
+            hierarchy=parse_ui_hierarchy(wallet_password_required_xml()),
+        )
+        client = FakeADBClient(
+            [password_required, password_required, password_required]
+        )
+
+        result = controller(client).start_password_crack()
+
+        self.assertEqual(result.status, WalletPasswordCrackStatus.SCREEN_UNCHANGED)
+        self.assertEqual(
+            result.destination, ScreenState.TARGET_WALLET_PASSWORD_REQUIRED
+        )
         self.assertEqual(len(client.taps), 1)
 
     def test_submits_login_once_and_verifies_authenticated_wallet(self) -> None:

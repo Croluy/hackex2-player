@@ -18,6 +18,7 @@ from hackex2.target_wallet import (
     TargetWalletVariant,
     parse_target_wallet_authenticated,
     parse_target_wallet_login,
+    parse_target_wallet_password_required,
     parse_wallet_transfer_confirmation,
 )
 
@@ -32,6 +33,11 @@ class WalletTransferStatus(str, Enum):
     SKIPPED_THRESHOLD = "SKIPPED_THRESHOLD"
 
 
+class WalletPasswordCrackStatus(str, Enum):
+    LEFT_PASSWORD_SCREEN = "LEFT_PASSWORD_SCREEN"
+    SCREEN_UNCHANGED = "SCREEN_UNCHANGED"
+
+
 @dataclass(frozen=True)
 class WalletTransferResult:
     status: WalletTransferStatus
@@ -41,6 +47,16 @@ class WalletTransferResult:
     max_tap: TapPlan | None
     transfer_tap: TapPlan | None
     observations: int
+
+
+@dataclass(frozen=True)
+class WalletPasswordCrackResult:
+    status: WalletPasswordCrackStatus
+    source: ScreenState
+    destination: ScreenState
+    tap: TapPlan
+    observations: int
+    attempts: int
 
 
 @dataclass(frozen=True)
@@ -234,6 +250,7 @@ class TargetWalletController:
                 after_dump = self.client.capture_ui_hierarchy(serial=selected.serial)
                 state = detect_screen(after_dump.hierarchy).state
                 if state in {
+                    ScreenState.TARGET_WALLET_PASSWORD_REQUIRED,
                     ScreenState.TARGET_WALLET_LOGIN,
                     ScreenState.TARGET_WALLET_AUTHENTICATED,
                 }:
@@ -248,6 +265,75 @@ class TargetWalletController:
 
         raise TargetWalletActionError(
             f"dashboard remained open after {total_attempts} WALLET attempts"
+        )
+
+    def start_password_crack(
+        self, serial: str | None = None
+    ) -> WalletPasswordCrackResult:
+        """Start the normal password crack once, never consuming an Exploit Kit."""
+
+        selected = self.client.select_device(serial)
+        before_dump = self.client.capture_ui_hierarchy(serial=selected.serial)
+        source = detect_screen(before_dump.hierarchy).state
+        if source is not ScreenState.TARGET_WALLET_PASSWORD_REQUIRED:
+            raise TargetWalletActionError(
+                "expected TARGET_WALLET_PASSWORD_REQUIRED, "
+                f"observed {source.value}"
+            )
+        wallet = parse_target_wallet_password_required(before_dump.hierarchy)
+        tap = self.humanized_input.tap_element(
+            self.client, selected.serial, wallet.crack_action
+        )
+        self.event_handler(
+            f"ACTION: CRACK PASSWORD once after {tap.delay_ms} ms; "
+            "Exploit Kit untouched"
+        )
+
+        last_unknown = False
+        for observation in range(1, self.settings.max_state_observations + 1):
+            self.sleeper(self.settings.state_poll_interval_ms / 1000)
+            after_dump = self.client.capture_ui_hierarchy(serial=selected.serial)
+            state = detect_screen(after_dump.hierarchy).state
+            if state is source:
+                last_unknown = False
+                continue
+            if state is ScreenState.UNKNOWN_SCREEN:
+                last_unknown = True
+                self.event_handler(
+                    "OBSERVED new unclassified screen after CRACK PASSWORD; "
+                    f"waiting without action [{observation}/"
+                    f"{self.settings.max_state_observations}]"
+                )
+                continue
+            return WalletPasswordCrackResult(
+                WalletPasswordCrackStatus.LEFT_PASSWORD_SCREEN,
+                source,
+                state,
+                tap,
+                observation,
+                1,
+            )
+
+        if last_unknown:
+            return WalletPasswordCrackResult(
+                WalletPasswordCrackStatus.LEFT_PASSWORD_SCREEN,
+                source,
+                ScreenState.UNKNOWN_SCREEN,
+                tap,
+                self.settings.max_state_observations,
+                1,
+            )
+        self.event_handler(
+            "OBSERVED Password Required screen unchanged after the single allowed "
+            "tap; treating the request as submitted without retry"
+        )
+        return WalletPasswordCrackResult(
+            WalletPasswordCrackStatus.SCREEN_UNCHANGED,
+            source,
+            source,
+            tap,
+            self.settings.max_state_observations,
+            1,
         )
 
     def login(self, serial: str | None = None) -> WalletTransitionResult:
@@ -285,17 +371,24 @@ class TargetWalletController:
         selected = self.client.select_device(serial)
         before_dump = self.client.capture_ui_hierarchy(serial=selected.serial)
         source = detect_screen(before_dump.hierarchy).state
-        if source is not ScreenState.TARGET_WALLET_AUTHENTICATED:
+        if source is ScreenState.TARGET_WALLET_AUTHENTICATED:
+            wallet = parse_target_wallet_authenticated(before_dump.hierarchy)
+        elif source is ScreenState.TARGET_WALLET_PASSWORD_REQUIRED:
+            wallet = parse_target_wallet_password_required(before_dump.hierarchy)
+        else:
             raise TargetWalletActionError(
-                f"expected TARGET_WALLET_AUTHENTICATED, observed {source.value}"
+                "expected TARGET_WALLET_AUTHENTICATED or "
+                f"TARGET_WALLET_PASSWORD_REQUIRED, observed {source.value}"
             )
-        wallet = parse_target_wallet_authenticated(before_dump.hierarchy)
         current_hierarchy = before_dump.hierarchy
         total_attempts = self.settings.max_action_retries + 1
 
         for attempt in range(1, total_attempts + 1):
             if attempt > 1:
-                wallet = parse_target_wallet_authenticated(current_hierarchy)
+                if source is ScreenState.TARGET_WALLET_AUTHENTICATED:
+                    wallet = parse_target_wallet_authenticated(current_hierarchy)
+                else:
+                    wallet = parse_target_wallet_password_required(current_hierarchy)
             tap = self.humanized_input.tap_element(
                 self.client, selected.serial, wallet.back_action
             )

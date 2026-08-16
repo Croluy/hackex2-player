@@ -16,6 +16,7 @@ class TargetWalletParseError(ValueError):
 class TargetWalletVariant(str, Enum):
     """Wallet branches verified from real UI observations."""
 
+    PASSWORD_REQUIRED = "PASSWORD_REQUIRED"
     LOGIN = "LOGIN"
     TRANSFERABLE = "TRANSFERABLE"
     PROTECTED = "PROTECTED"
@@ -28,6 +29,20 @@ class TargetWalletSnapshot:
     owner_username: str
     login_username: str
     masked_password_length: int
+    available_actions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TargetWalletPasswordRequiredSnapshot:
+    variant: TargetWalletVariant
+    owner_username: str
+    login_username: str
+    masked_password_length: int
+    encryptor_level: int
+    exploit_kit_count: int
+    crack_action: UIElement
+    exploit_kit_action: UIElement
+    back_action: UIElement
     available_actions: tuple[str, ...]
 
 
@@ -48,6 +63,10 @@ class TargetWalletAuthenticatedSnapshot:
 
 _OWNER = re.compile(r"(.+)'s wallet")
 _MASKED_PASSWORD = re.compile(r"\*+")
+_MASKED_OR_HIDDEN_PASSWORD = re.compile(r"[*.]+")
+_ENCRYPTED_PASSWORD = re.compile(r"Password encrypted at Lv\.(\d+)")
+_EXPLOIT_KIT = re.compile(r"\*?\s*USE EXPLOIT KIT \(x(\d+)\)")
+_CRACK_PASSWORD = re.compile(r"\*?\s*CRACK PASSWORD")
 _ACTION_LABELS = {
     "< back": "BACK",
     "DISCONNECT": "DISCONNECT",
@@ -63,6 +82,65 @@ _TRANSFER_CONFIRMATION = re.compile(
     re.IGNORECASE,
 )
 _PROTECTION_MARKERS = ("WALLET SHIELD ACTIVE", "TRANSFER BLOCKED")
+
+
+def parse_target_wallet_password_required(
+    hierarchy: UIHierarchy,
+) -> TargetWalletPasswordRequiredSnapshot:
+    """Parse an observed encrypted-password branch without consuming a kit."""
+
+    owner = _parse_owner(hierarchy)
+    username_label = _single_text_element(hierarchy, "USERNAME")
+    password_label = _single_text_element(hierarchy, "PASSWORD")
+    encryption_notice, encryption_match = _single_pattern_element(
+        hierarchy, _ENCRYPTED_PASSWORD, "encrypted-password level"
+    )
+    exploit_kit_action, exploit_match = _single_pattern_clickable_element(
+        hierarchy, _EXPLOIT_KIT, "Exploit Kit action"
+    )
+    crack_action, _ = _single_pattern_clickable_element(
+        hierarchy, _CRACK_PASSWORD, "Crack Password action"
+    )
+    back_action = _single_clickable_element(hierarchy, "< back")
+    _single_clickable_element(hierarchy, "DISCONNECT")
+
+    username = _single_field_value(
+        hierarchy,
+        description="wallet username",
+        top=username_label.bounds.bottom,
+        bottom=password_label.bounds.top,
+        pattern=None,
+    )
+    masked_password = _single_field_value(
+        hierarchy,
+        description="hidden wallet password",
+        top=password_label.bounds.bottom,
+        bottom=encryption_notice.bounds.top,
+        pattern=_MASKED_OR_HIDDEN_PASSWORD,
+    )
+    if username != owner:
+        raise TargetWalletParseError(
+            "wallet owner and encrypted-login username do not match"
+        )
+
+    actions = (
+        "BACK",
+        "DISCONNECT",
+        "USE_EXPLOIT_KIT",
+        "CRACK_PASSWORD",
+    )
+    return TargetWalletPasswordRequiredSnapshot(
+        variant=TargetWalletVariant.PASSWORD_REQUIRED,
+        owner_username=owner,
+        login_username=username,
+        masked_password_length=len(masked_password),
+        encryptor_level=int(encryption_match.group(1)),
+        exploit_kit_count=int(exploit_match.group(1)),
+        crack_action=crack_action,
+        exploit_kit_action=exploit_kit_action,
+        back_action=back_action,
+        available_actions=actions,
+    )
 
 
 def parse_target_wallet_login(hierarchy: UIHierarchy) -> TargetWalletSnapshot:
@@ -279,6 +357,47 @@ def _single_pattern_value(
             f"expected exactly one {description}, found {len(values)}"
         )
     return values[0]
+
+
+def _single_pattern_element(
+    hierarchy: UIHierarchy,
+    pattern: re.Pattern[str],
+    description: str,
+) -> tuple[UIElement, re.Match[str]]:
+    matches = tuple(
+        (element, match)
+        for element in hierarchy.elements
+        if element.enabled
+        and element.bounds.width > 0
+        and element.bounds.height > 0
+        and (match := pattern.fullmatch(element.text.strip())) is not None
+    )
+    if len(matches) != 1:
+        raise TargetWalletParseError(
+            f"expected exactly one {description}, found {len(matches)}"
+        )
+    return matches[0]
+
+
+def _single_pattern_clickable_element(
+    hierarchy: UIHierarchy,
+    pattern: re.Pattern[str],
+    description: str,
+) -> tuple[UIElement, re.Match[str]]:
+    matches = tuple(
+        (element, match)
+        for element in hierarchy.elements
+        if element.enabled
+        and element.clickable
+        and element.bounds.width > 0
+        and element.bounds.height > 0
+        and (match := pattern.fullmatch(element.text.strip())) is not None
+    )
+    if len(matches) != 1:
+        raise TargetWalletParseError(
+            f"expected exactly one clickable {description}, found {len(matches)}"
+        )
+    return matches[0]
 
 
 def _parse_optional_crypto_amount(value: str) -> int | None:

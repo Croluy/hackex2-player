@@ -35,6 +35,7 @@ _LEVEL = re.compile(r"LVL\s+(\d+)")
 _REPUTATION = re.compile(r"REP\s+(\d+)")
 _XP = re.compile(r"(\d+)\s*/\s*(\d+)")
 _PERCENT = re.compile(r"(\d+)%")
+_SCORE = re.compile(r"\d+(?:,\d{3})*")
 _SYSTEM_LEVEL = re.compile(r"Lv\.(\d+)")
 _CREW_SUFFIX = re.compile(r"\s+\[([^\[\]]+)]\s*$")
 _CURSOR_SUFFIX = re.compile(r"\s+_\s*$")
@@ -138,9 +139,9 @@ def _single_pattern_integer(
 def _parse_score(hierarchy: UIHierarchy) -> int:
     score_label = _single_text_element(hierarchy, "SCORE")
     candidates = tuple(
-        int(text)
+        int(text.replace(",", ""))
         for element in hierarchy.elements
-        if (text := element.text.strip()).isdigit()
+        if _SCORE.fullmatch(text := element.text.strip()) is not None
         and element.bounds.left < score_label.bounds.left
         and _vertical_overlap(element, score_label) > 0
     )

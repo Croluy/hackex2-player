@@ -41,6 +41,7 @@ from hackex2.target_wallet import (
     TargetWalletParseError,
     parse_target_wallet_authenticated,
     parse_target_wallet_login,
+    parse_target_wallet_password_required,
 )
 from hackex2.target_wallet_actions import (
     TargetWalletActionError,
@@ -142,6 +143,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="submit a verified prefilled target-wallet Login once",
     )
     add_adb_arguments(login_wallet_parser)
+
+    crack_wallet_parser = subparsers.add_parser(
+        "crack-target-wallet-password",
+        help="start a verified normal password crack without consuming an Exploit Kit",
+    )
+    add_adb_arguments(crack_wallet_parser)
 
     open_log_parser = subparsers.add_parser(
         "open-target-log",
@@ -428,7 +435,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 Path("diagnostics", f"target-wallet-{timestamp}.xml"), args.serial
             )
             detection = detect_screen(dump.hierarchy)
-            if detection.state is ScreenState.TARGET_WALLET_LOGIN:
+            if detection.state is ScreenState.TARGET_WALLET_PASSWORD_REQUIRED:
+                wallet = parse_target_wallet_password_required(dump.hierarchy)
+            elif detection.state is ScreenState.TARGET_WALLET_LOGIN:
                 wallet = parse_target_wallet_login(dump.hierarchy)
             elif detection.state is ScreenState.TARGET_WALLET_AUTHENTICATED:
                 wallet = parse_target_wallet_authenticated(dump.hierarchy)
@@ -444,7 +453,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"STATE: {detection.state.value}")
         print(f"Wallet branch: {wallet.variant.value}")
         print(f"Owner: {wallet.owner_username}")
-        if detection.state is ScreenState.TARGET_WALLET_LOGIN:
+        if detection.state is ScreenState.TARGET_WALLET_PASSWORD_REQUIRED:
+            print(f"Prefilled username: {wallet.login_username}")
+            print(
+                "Password: hidden and encrypted "
+                f"at Lv.{wallet.encryptor_level} "
+                f"({wallet.masked_password_length} mask characters)"
+            )
+            print(f"Exploit Kits available: {wallet.exploit_kit_count}")
+            print(f"Available actions: {', '.join(wallet.available_actions)}")
+        elif detection.state is ScreenState.TARGET_WALLET_LOGIN:
             print(f"Prefilled username: {wallet.login_username}")
             print(
                 "Password: masked and present "
@@ -472,6 +490,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "target-wallet-back",
         "open-target-wallet",
         "login-target-wallet",
+        "crack-target-wallet-password",
     }:
         controller = TargetWalletController(
             ADBClient(adb_path=args.adb_path),
@@ -503,8 +522,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"Verified after observations: {result.observations}")
                 print(f"Action attempts: {result.attempts}")
                 print(f"STATE: {result.destination.value}")
-            else:
+            elif args.command == "login-target-wallet":
                 result = controller.login(args.serial)
+                print(f"STATE: {result.source.value}")
+                print(f"Verified after observations: {result.observations}")
+                print(f"Action attempts: {result.attempts}")
+                print(f"STATE: {result.destination.value}")
+            else:
+                result = controller.start_password_crack(args.serial)
+                print(f"Password crack result: {result.status.value}")
                 print(f"STATE: {result.source.value}")
                 print(f"Verified after observations: {result.observations}")
                 print(f"Action attempts: {result.attempts}")

@@ -184,6 +184,11 @@ class ADBClient:
             path=destination,
         )
 
+    def tap(self, serial: str, x: int, y: int) -> None:
+        if x < 0 or y < 0:
+            raise ADBError("tap coordinates must be zero or greater")
+        self._run("-s", serial, "shell", "input", "tap", str(x), str(y))
+
 
 def parse_devices(output: str) -> list[ADBDevice]:
     devices: list[ADBDevice] = []

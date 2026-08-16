@@ -10,6 +10,14 @@ from datetime import datetime
 from pathlib import Path
 
 from hackex2.adb.device import ADBClient, ADBError
+from hackex2.adb.input import HumanizedInput
+from hackex2.config import (
+    ConfigurationError,
+    InputSettings,
+    NavigationSettings,
+    load_env_file,
+)
+from hackex2.navigation import NavigationError, Navigator
 from hackex2.states import ScreenState, detect_screen
 
 
@@ -52,6 +60,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("diagnostics"),
         help="directory for diagnostic UI data and unknown-screen screenshots",
     )
+
+    navigate_parser = subparsers.add_parser(
+        "navigate", help="navigate between known screens and verify the destination"
+    )
+    add_adb_arguments(navigate_parser)
+    navigate_parser.add_argument(
+        "destination",
+        choices=("home", "processes"),
+        help="known screen to open",
+    )
     return parser
 
 
@@ -69,6 +87,11 @@ def add_adb_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        load_env_file()
+    except ConfigurationError as exc:
+        print(f"Configuration failed: {exc}", file=sys.stderr)
+        return 1
     args = build_parser().parse_args(argv)
 
     if args.command == "device":
@@ -153,4 +176,54 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         return 0
 
+    if args.command == "navigate":
+        destination = {
+            "home": ScreenState.HOME,
+            "processes": ScreenState.PROCESSES,
+        }[args.destination]
+        client = ADBClient(adb_path=args.adb_path)
+        try:
+            navigator = Navigator(
+                client,
+                HumanizedInput(InputSettings.from_environment()),
+                NavigationSettings.from_environment(),
+                event_handler=print,
+            )
+            result = navigator.navigate_to(destination, args.serial)
+        except (ADBError, ConfigurationError, NavigationError, OSError, ValueError) as exc:
+            print(f"Navigation failed: {exc}", file=sys.stderr)
+            _save_navigation_failure_diagnostics(client, args.serial)
+            return 1
+
+        print(f"STATE: {result.source.value}")
+        if result.tap is None:
+            print(f"Already at destination: {result.destination.value}")
+        else:
+            print(
+                f"Tap: ({result.tap.x}, {result.tap.y}) after "
+                f"{result.tap.delay_ms} ms"
+            )
+            print(f"Verified after observations: {result.observations}")
+            print(f"Action attempts: {result.attempts}")
+        print(f"STATE: {result.destination.value}")
+        return 0
+
     return 2
+
+
+def _save_navigation_failure_diagnostics(
+    client: ADBClient, serial: str | None
+) -> None:
+    timestamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+    try:
+        ui = client.capture_ui_hierarchy(
+            Path("diagnostics", f"navigation-failure-{timestamp}.xml"), serial
+        )
+        screenshot = client.capture_screenshot(
+            Path("diagnostics", f"navigation-failure-{timestamp}.png"), serial
+        )
+    except (ADBError, OSError, ValueError) as exc:
+        print(f"Failure diagnostics unavailable: {exc}", file=sys.stderr)
+        return
+    print(f"Failure UI hierarchy: {ui.path}", file=sys.stderr)
+    print(f"Failure screenshot: {screenshot.path}", file=sys.stderr)

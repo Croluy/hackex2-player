@@ -82,6 +82,27 @@ class ScreenDetectorTest(unittest.TestCase):
         self.assertEqual(detection.confidence, 0.0)
         self.assertEqual(detection.missing_evidence, ("XP progress panel",))
 
+    def test_detects_processes_without_assuming_a_process_count(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            hierarchy_xml(
+                node(
+                    text="PROCESSES",
+                    resource_id="nav-item-processes",
+                    clickable=True,
+                ),
+                node(text="// PROCESSES"),
+                node(content_description="Search", clickable=True),
+                node(text="ALL", clickable=True),
+                node(text="0 active tasks"),
+            )
+        )
+
+        detection = detect_screen(hierarchy)
+
+        self.assertEqual(detection.state, ScreenState.PROCESSES)
+        self.assertEqual(detection.confidence, 1.0)
+        self.assertEqual(len(detection.evidence), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

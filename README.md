@@ -59,7 +59,28 @@ The command validates and parses the UIAutomator XML, reports the visible and cl
 .venv/bin/python -m hackex2 detect-screen
 ```
 
-The first supported state is `HOME`. Detection requires all configured HOME markers; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
+The supported states are `HOME` and `PROCESSES`. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
+
+## Humanized input configuration
+
+Input timing and position variation are read from `.env`:
+
+```env
+MIN_ACTION_DELAY_MS=100
+MAX_ACTION_DELAY_MS=500
+TAP_RANDOM_RADIUS_PX=12
+```
+
+Tap points use a center-weighted distribution, stay inside the detected clickable element, and are delayed independently before being sent to ADB.
+
+## Verified navigation
+
+```bash
+.venv/bin/python -m hackex2 navigate home
+.venv/bin/python -m hackex2 navigate processes
+```
+
+Navigation starts only from a recognized screen, targets exactly one enabled UI element, and polls a limited number of times until the requested destination is recognized. A tap may be retried only while the observed state remains exactly the known source state. Unknown or alternative states stop immediately. Failed transitions save diagnostic XML and PNG files.
 
 ## Focused test
 

@@ -1,6 +1,7 @@
 """Android Debug Bridge integration."""
 
 from hackex2.adb.device import ADBClient, ADBDevice, ADBError, Screenshot
+from hackex2.adb.input import HumanizedInput, TapPlan
 from hackex2.adb.ui import Bounds, UIElement, UIHierarchy, UIHierarchyDump
 
 __all__ = [
@@ -8,7 +9,9 @@ __all__ = [
     "ADBDevice",
     "ADBError",
     "Bounds",
+    "HumanizedInput",
     "Screenshot",
+    "TapPlan",
     "UIElement",
     "UIHierarchy",
     "UIHierarchyDump",

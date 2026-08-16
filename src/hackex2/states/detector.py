@@ -10,6 +10,7 @@ from hackex2.adb.ui import UIElement, UIHierarchy
 
 class ScreenState(str, Enum):
     HOME = "HOME"
+    PROCESSES = "PROCESSES"
     UNKNOWN_SCREEN = "UNKNOWN_SCREEN"
 
 
@@ -61,6 +62,18 @@ _HOME_MARKERS = (
     ),
 )
 
+_PROCESSES_MARKERS = (
+    _Marker(
+        name="Processes navigation button",
+        text="PROCESSES",
+        resource_id="nav-item-processes",
+        clickable=True,
+    ),
+    _Marker(name="Processes heading", text="// PROCESSES"),
+    _Marker(name="process search action", content_description="Search", clickable=True),
+    _Marker(name="all-processes filter", text="ALL", clickable=True),
+)
+
 
 def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
     if "net.cncapps.hackex2" not in hierarchy.packages:
@@ -71,20 +84,32 @@ def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
             missing_evidence=("HackEx2 application package",),
         )
 
-    matched = tuple(
-        marker.name
-        for marker in _HOME_MARKERS
-        if any(marker.matches(element) for element in hierarchy.elements)
+    candidates = (
+        (ScreenState.HOME, _match_markers(_HOME_MARKERS, hierarchy)),
+        (ScreenState.PROCESSES, _match_markers(_PROCESSES_MARKERS, hierarchy)),
     )
-    missing = tuple(
-        marker.name for marker in _HOME_MARKERS if marker.name not in matched
+    complete = tuple(
+        (state, matched, missing)
+        for state, (matched, missing) in candidates
+        if not missing
     )
-    if not missing:
+    if len(complete) == 1:
+        state, matched, _ = complete[0]
         return ScreenDetection(
-            state=ScreenState.HOME,
+            state=state,
             confidence=1.0,
             evidence=matched,
         )
+
+    if len(complete) > 1:
+        return ScreenDetection(
+            state=ScreenState.UNKNOWN_SCREEN,
+            confidence=0.0,
+            evidence=tuple(state.value for state, _, _ in complete),
+            missing_evidence=("unambiguous screen state",),
+        )
+
+    _, (matched, missing) = max(candidates, key=lambda item: len(item[1][0]))
 
     return ScreenDetection(
         state=ScreenState.UNKNOWN_SCREEN,
@@ -93,3 +118,14 @@ def detect_screen(hierarchy: UIHierarchy) -> ScreenDetection:
         missing_evidence=missing,
     )
 
+
+def _match_markers(
+    markers: tuple[_Marker, ...], hierarchy: UIHierarchy
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    matched = tuple(
+        marker.name
+        for marker in markers
+        if any(marker.matches(element) for element in hierarchy.elements)
+    )
+    missing = tuple(marker.name for marker in markers if marker.name not in matched)
+    return matched, missing

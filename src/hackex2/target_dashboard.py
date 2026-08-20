@@ -32,7 +32,7 @@ class TargetDashboard:
 
 
 _LEVEL = re.compile(r"LVL\s+(\d+)")
-_REPUTATION = re.compile(r"REP\s+(\d+)")
+_REPUTATION = re.compile(r"REP\s+([\d,]+)")
 _XP = re.compile(r"(\d+)\s*/\s*(\d+)")
 _PERCENT = re.compile(r"(\d+)%")
 _SCORE = re.compile(r"\d+(?:,\d{3})*")
@@ -125,7 +125,7 @@ def _single_pattern_integer(
     hierarchy: UIHierarchy, pattern: re.Pattern[str], description: str
 ) -> int:
     values = tuple(
-        int(match.group(1))
+        int(match.group(1).replace(",", ""))
         for element in hierarchy.elements
         if (match := pattern.fullmatch(element.text.strip())) is not None
     )

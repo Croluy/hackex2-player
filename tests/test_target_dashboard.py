@@ -26,7 +26,9 @@ def target_node(
     )
 
 
-def target_dashboard_xml(*, xp_percent: int = 86, score: str = "694 ") -> str:
+def target_dashboard_xml(
+    *, xp_percent: int = 86, reputation: str = "720", score: str = "694 "
+) -> str:
     return hierarchy_xml(
         target_node(text="CONNECTED", bounds="[73,185][222,219]"),
         target_node(
@@ -37,7 +39,7 @@ def target_dashboard_xml(*, xp_percent: int = 86, score: str = "694 ") -> str:
         ),
         target_node(text="&gt; nebthepleb _ [NUT5]", bounds="[45,284][644,354]"),
         target_node(text="LVL 5", bounds="[154,430][261,475]"),
-        target_node(text="REP 720", bounds="[343,430][489,475]"),
+        target_node(text=f"REP {reputation}", bounds="[343,430][489,475]"),
         target_node(text=score, bounds="[866,424][967,480]"),
         target_node(text="SCORE", bounds="[964,441][1035,466]"),
         target_node(text="// XP PROGRESS", bounds="[92,615][326,649]"),
@@ -115,6 +117,13 @@ class TargetDashboardParserTest(unittest.TestCase):
         )
 
         self.assertEqual(target.score, 1436)
+
+    def test_parses_thousands_separator_in_reputation(self) -> None:
+        target = parse_target_dashboard(
+            parse_ui_hierarchy(target_dashboard_xml(reputation="4,923"))
+        )
+
+        self.assertEqual(target.reputation, 4923)
 
 
 if __name__ == "__main__":

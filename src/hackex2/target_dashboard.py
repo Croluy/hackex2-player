@@ -29,6 +29,7 @@ class TargetDashboard:
     firewall_level: int
     encryptor_level: int
     available_actions: tuple[str, ...]
+    displayed_ip_address: str | None = None
 
 
 _LEVEL = re.compile(r"LVL\s+(\d+)")
@@ -37,12 +38,15 @@ _XP = re.compile(r"(\d+)\s*/\s*(\d+)")
 _PERCENT = re.compile(r"(\d+)%")
 _SCORE = re.compile(r"\d+(?:,\d{3})*")
 _SYSTEM_LEVEL = re.compile(r"Lv\.(\d+)")
+_MASKED_IPV4 = re.compile(r"(\d{1,3})\.(\d{1,3})\.xxx\.xxx")
 _CREW_SUFFIX = re.compile(r"\s+\[([^\[\]]+)]\s*$")
 _CURSOR_SUFFIX = re.compile(r"\s+_\s*$")
 _ACTIONS = ("DISCONNECT", "WALLET", "APPS", "PROCESSES", "LOG", "CREWS")
 
 
-def parse_target_dashboard(hierarchy: UIHierarchy) -> TargetDashboard:
+def parse_target_dashboard(
+    hierarchy: UIHierarchy, *, expected_ip_address: str | None = None
+) -> TargetDashboard:
     """Parse one already verified target dashboard without interacting with it."""
 
     username, crew_tag = _parse_identity(hierarchy)
@@ -61,13 +65,8 @@ def parse_target_dashboard(hierarchy: UIHierarchy) -> TargetDashboard:
             "target XP percentage does not agree with current and required XP"
         )
 
-    ip_address = _row_value(hierarchy, "IP")
-    try:
-        IPv4Address(ip_address)
-    except AddressValueError as exc:
-        raise TargetDashboardParseError(
-            f"target IP is not a valid IPv4 address: {ip_address!r}"
-        ) from exc
+    displayed_ip_address = _row_value(hierarchy, "IP")
+    ip_address = _resolve_ip_address(displayed_ip_address, expected_ip_address)
 
     actions = tuple(
         action
@@ -95,7 +94,38 @@ def parse_target_dashboard(hierarchy: UIHierarchy) -> TargetDashboard:
         firewall_level=_row_level(hierarchy, "FIREWALL"),
         encryptor_level=_row_level(hierarchy, "ENCRYPTOR"),
         available_actions=actions,
+        displayed_ip_address=displayed_ip_address,
     )
+
+
+def _resolve_ip_address(displayed: str, expected: str | None) -> str:
+    try:
+        return str(IPv4Address(displayed))
+    except AddressValueError:
+        masked = _MASKED_IPV4.fullmatch(displayed)
+        if masked is None:
+            raise TargetDashboardParseError(
+                f"target IP is not a valid or recognized masked IPv4: {displayed!r}"
+            )
+
+    prefix = tuple(int(part) for part in masked.groups())
+    if any(part > 255 for part in prefix):
+        raise TargetDashboardParseError(
+            f"target masked IP has an invalid prefix: {displayed!r}"
+        )
+    if expected is None:
+        return displayed
+    try:
+        expected_ip = IPv4Address(expected)
+    except AddressValueError as exc:
+        raise TargetDashboardParseError(
+            f"expected target IP is not valid: {expected!r}"
+        ) from exc
+    if tuple(expected_ip.packed[:2]) != prefix:
+        raise TargetDashboardParseError(
+            f"masked target IP {displayed!r} does not match expected IP {expected!r}"
+        )
+    return str(expected_ip)
 
 
 def _parse_identity(hierarchy: UIHierarchy) -> tuple[str, str | None]:

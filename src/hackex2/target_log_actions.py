@@ -74,7 +74,10 @@ class TargetLogController:
         self.event_handler = event_handler
 
     def open_from_dashboard(
-        self, serial: str | None = None
+        self,
+        serial: str | None = None,
+        *,
+        expected_ip_address: str | None = None,
     ) -> TargetLogTransitionResult:
         selected = self.client.select_device(serial)
         before_dump = self.client.capture_ui_hierarchy(serial=selected.serial)
@@ -83,7 +86,9 @@ class TargetLogController:
             raise TargetLogActionError(
                 f"expected TARGET_DASHBOARD, observed {source.value}"
             )
-        parse_target_dashboard(before_dump.hierarchy)
+        parse_target_dashboard(
+            before_dump.hierarchy, expected_ip_address=expected_ip_address
+        )
         current_hierarchy = before_dump.hierarchy
         total_attempts = self.settings.max_action_retries + 1
 

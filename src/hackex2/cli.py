@@ -17,6 +17,11 @@ from hackex2.config import (
     NavigationSettings,
     load_env_file,
 )
+from hackex2.database import (
+    DatabaseError,
+    TargetDatabase,
+    TargetEventType,
+)
 from hackex2.navigation import NavigationError, Navigator
 from hackex2.processes import (
     ProcessFilter,
@@ -25,6 +30,11 @@ from hackex2.processes import (
     parse_process_list,
 )
 from hackex2.process_filters import ProcessFilterController, ProcessFilterError
+from hackex2.process_target_actions import (
+    ProcessTargetActionError,
+    ProcessTargetController,
+    ProcessTargetStatus,
+)
 from hackex2.process_scroller import (
     ProcessScrollError,
     ProcessScroller,
@@ -47,6 +57,7 @@ from hackex2.target_wallet_actions import (
     TargetWalletActionError,
     TargetWalletController,
 )
+from hackex2.target_workflow import TargetWorkflow, TargetWorkflowError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
         "device", help="inspect the connected Android device"
     )
     add_adb_arguments(device_parser)
+
+    database_parser = subparsers.add_parser(
+        "database-status", help="initialize and inspect the local target database"
+    )
+    add_database_argument(database_parser)
 
     screenshot_parser = subparsers.add_parser(
         "screenshot", help="capture and verify a device screenshot"
@@ -113,6 +129,43 @@ def build_parser() -> argparse.ArgumentParser:
         "inspect-target", help="parse the currently connected target dashboard"
     )
     add_adb_arguments(target_parser)
+    target_parser.add_argument(
+        "--expected-ip",
+        help="full process IP used only to resolve a matching masked dashboard IP",
+    )
+
+    process_target_parser = subparsers.add_parser(
+        "open-process-target",
+        help="open one completed process and verify the target dashboard IP",
+    )
+    add_adb_arguments(process_target_parser)
+    add_database_argument(process_target_parser)
+    selector = process_target_parser.add_mutually_exclusive_group(required=True)
+    selector.add_argument("--process-id", help="exact visible process identifier")
+    selector.add_argument("--ip", dest="ip_address", help="exact visible target IPv4")
+
+    service_target_parser = subparsers.add_parser(
+        "service-target",
+        help="service Wallet and Log for the currently connected target",
+    )
+    add_adb_arguments(service_target_parser)
+    add_database_argument(service_target_parser)
+    service_target_parser.add_argument(
+        "--expected-ip",
+        help="full process IP used to resolve a matching masked dashboard IP",
+    )
+
+    service_process_parser = subparsers.add_parser(
+        "service-process-target",
+        help="open and fully service one exact completed process target",
+    )
+    add_adb_arguments(service_process_parser)
+    add_database_argument(service_process_parser)
+    service_selector = service_process_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    service_selector.add_argument("--process-id")
+    service_selector.add_argument("--ip", dest="ip_address")
 
     wallet_parser = subparsers.add_parser(
         "inspect-target-wallet",
@@ -137,6 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="open Wallet from a verified target dashboard",
     )
     add_adb_arguments(open_wallet_parser)
+    open_wallet_parser.add_argument("--expected-ip")
 
     login_wallet_parser = subparsers.add_parser(
         "login-target-wallet",
@@ -155,6 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="open Log from a verified target dashboard",
     )
     add_adb_arguments(open_log_parser)
+    open_log_parser.add_argument("--expected-ip")
 
     inspect_log_parser = subparsers.add_parser(
         "inspect-target-log",
@@ -209,6 +264,14 @@ def add_adb_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_database_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--database",
+        type=Path,
+        help="local SQLite path; defaults to HACKEX2_DB_PATH or data/hackex2.sqlite3",
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         load_env_file()
@@ -216,6 +279,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Configuration failed: {exc}", file=sys.stderr)
         return 1
     args = build_parser().parse_args(argv)
+
+    if args.command == "database-status":
+        database = TargetDatabase(args.database)
+        try:
+            version, targets, events = database.status()
+        except (DatabaseError, OSError, ValueError) as exc:
+            print(f"Database check failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"Database: {database.path}")
+        print(f"Schema version: {version}")
+        print(f"Known targets: {targets}")
+        print(f"History events: {events}")
+        return 0
 
     if args.command == "device":
         try:
@@ -401,7 +477,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise TargetDashboardParseError(
                     f"expected TARGET_DASHBOARD, observed {detection.state.value}"
                 )
-            target = parse_target_dashboard(dump.hierarchy)
+            target = parse_target_dashboard(
+                dump.hierarchy, expected_ip_address=args.expected_ip
+            )
         except (ADBError, OSError, TargetDashboardParseError, ValueError) as exc:
             print(f"Target inspection failed: {exc}", file=sys.stderr)
             return 1
@@ -425,6 +503,161 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(f"Available actions: {', '.join(target.available_actions)}")
         print(f"UI hierarchy: {dump.path}")
+        return 0
+
+    if args.command == "open-process-target":
+        client = ADBClient(adb_path=args.adb_path)
+        try:
+            controller = ProcessTargetController(
+                client,
+                HumanizedInput(InputSettings.from_environment()),
+                NavigationSettings.from_environment(),
+                event_handler=print,
+            )
+            result = controller.open_completed_target(
+                process_id=args.process_id,
+                ip_address=args.ip_address,
+                serial=args.serial,
+            )
+            database = TargetDatabase(args.database)
+            database.observe_process_target(result.process)
+            database.record_event(
+                result.process.ip_address,
+                TargetEventType.HACK_ATTEMPTED,
+                metadata={"process_id": result.process.process_id},
+            )
+            if result.status is ProcessTargetStatus.OPENED_TARGET:
+                if result.target is None:
+                    raise ProcessTargetActionError(
+                        "opened-target result is missing dashboard data"
+                    )
+                database.observe_dashboard(
+                    result.target, game_tags=result.process.game_tags
+                )
+                database.record_hack_verified(result.target.ip_address)
+            else:
+                database.record_event(
+                    result.process.ip_address,
+                    TargetEventType.HACK_RETURNED_HOME,
+                    metadata={"process_id": result.process.process_id},
+                )
+        except (
+            ADBError,
+            ConfigurationError,
+            DatabaseError,
+            OSError,
+            ProcessParseError,
+            ProcessTargetActionError,
+            TargetDashboardParseError,
+            ValueError,
+        ) as exc:
+            print(f"Process target action failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"Process: {result.process.process_id}")
+        print(f"Process target result: {result.status.value}")
+        print(f"Target IP: {result.process.ip_address}")
+        if result.target is not None:
+            print(f"Target username: {result.target.username}")
+        print(f"Verified after observations: {result.observations}")
+        state = (
+            ScreenState.TARGET_DASHBOARD
+            if result.status is ProcessTargetStatus.OPENED_TARGET
+            else ScreenState.HOME
+        )
+        print(f"STATE: {state.value}")
+        print(f"Database: {database.path}")
+        return 0
+
+    if args.command in {"service-target", "service-process-target"}:
+        client = ADBClient(adb_path=args.adb_path)
+        inputs = HumanizedInput(InputSettings.from_environment())
+        settings = NavigationSettings.from_environment()
+        database = TargetDatabase(args.database)
+        expected_ip = getattr(args, "expected_ip", None)
+        try:
+            if args.command == "service-process-target":
+                process_controller = ProcessTargetController(
+                    client, inputs, settings, event_handler=print
+                )
+                process_result = process_controller.open_completed_target(
+                    process_id=args.process_id,
+                    ip_address=args.ip_address,
+                    serial=args.serial,
+                )
+                process_ip = process_result.process.ip_address
+                if process_ip is None:
+                    raise ProcessTargetActionError(
+                        "verified process result has no target IP"
+                    )
+                database.observe_process_target(process_result.process)
+                database.record_event(
+                    process_ip,
+                    TargetEventType.HACK_ATTEMPTED,
+                    metadata={"process_id": process_result.process.process_id},
+                )
+                if process_result.status is ProcessTargetStatus.RETURNED_HOME:
+                    database.record_event(
+                        process_ip,
+                        TargetEventType.HACK_RETURNED_HOME,
+                        metadata={"process_id": process_result.process.process_id},
+                    )
+                    print("Process target result: RETURNED_HOME")
+                    print(f"Target IP: {process_ip}")
+                    print("No retry performed")
+                    print(f"Database: {database.path}")
+                    return 0
+                if process_result.target is None:
+                    raise ProcessTargetActionError(
+                        "opened process target has no parsed dashboard"
+                    )
+                database.observe_dashboard(
+                    process_result.target,
+                    game_tags=process_result.process.game_tags,
+                )
+                database.record_hack_verified(process_ip)
+                expected_ip = process_ip
+
+            wallet = TargetWalletController(
+                client, inputs, settings, event_handler=print
+            )
+            log = TargetLogController(
+                client, inputs, settings, event_handler=print
+            )
+            workflow = TargetWorkflow(
+                client, wallet, log, database, event_handler=print
+            )
+            result = workflow.service_current_target(
+                args.serial, expected_ip_address=expected_ip
+            )
+        except (
+            ADBError,
+            ConfigurationError,
+            DatabaseError,
+            OSError,
+            ProcessParseError,
+            ProcessTargetActionError,
+            TargetDashboardParseError,
+            TargetLogActionError,
+            TargetLogParseError,
+            TargetWalletActionError,
+            TargetWalletParseError,
+            TargetWorkflowError,
+            ValueError,
+        ) as exc:
+            print(f"Target workflow failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"Target: {result.target.username} ({result.target.ip_address})")
+        print(f"Initial Wallet branch: {result.initial_wallet_variant.value}")
+        print(f"Wallet result: {result.wallet_status}")
+        if result.initial_hot_wallet_crypto is not None:
+            print(
+                f"Initial hot wallet: {result.initial_hot_wallet_crypto} Crypto"
+            )
+        print(f"Transferred: {result.transferred_crypto} Crypto")
+        print(f"Log result: {result.log_status.value}")
+        print(f"Disconnected: {'yes' if result.disconnected else 'no'}")
+        print(f"Database: {database.path}")
+        print("STATE: PROCESSES")
         return 0
 
     if args.command == "inspect-target-wallet":
@@ -517,7 +750,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"Action attempts: {result.attempts}")
                 print(f"STATE: {result.destination.value}")
             elif args.command == "open-target-wallet":
-                result = controller.open_from_dashboard(args.serial)
+                result = controller.open_from_dashboard(
+                    args.serial, expected_ip_address=args.expected_ip
+                )
                 print(f"STATE: {result.source.value}")
                 print(f"Verified after observations: {result.observations}")
                 print(f"Action attempts: {result.attempts}")
@@ -555,7 +790,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             event_handler=print,
         )
         try:
-            result = controller.open_from_dashboard(args.serial)
+            result = controller.open_from_dashboard(
+                args.serial, expected_ip_address=args.expected_ip
+            )
         except (
             ADBError,
             ConfigurationError,

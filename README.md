@@ -4,14 +4,14 @@ Private, state-aware automation for HackEx2 running on macOS and controlling an 
 
 ## Current milestone
 
-The project can discover one authorized Android device, report its model and effective screen resolution, and capture a verified PNG screenshot. It does not interact with the game yet.
+The project can inspect and navigate the game through accessibility data, traverse typed process views, open a completed target with exact process verification, service the known Wallet and Log branches, disconnect safely, and persist target observations and outcomes in a local SQLite database. Every consequential tap is gated by a recognized state and verified afterward.
 
 ## Requirements
 
 - macOS
 - Python 3.11 or newer
 - Android Platform Tools (`adb`)
-- USB debugging enabled on the Android device
+- USB or wireless debugging enabled on the Android device
 
 ## Setup
 
@@ -59,7 +59,7 @@ The command validates and parses the UIAutomator XML, reports the visible and cl
 .venv/bin/python -m hackex2 detect-screen
 ```
 
-The supported states are `HOME`, `PROCESSES`, `TARGET_DASHBOARD`, `TARGET_WALLET_LOGIN`, and `TARGET_WALLET_AUTHENTICATED`. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
+The supported states cover Home, Processes, target Dashboard, the known target Wallet branches, and target Log. Detection requires every marker configured for exactly one state; otherwise the command reports `UNKNOWN_SCREEN` and saves both the hierarchy and a screenshot for diagnosis without tapping the UI.
 
 ## Humanized input configuration
 
@@ -115,6 +115,32 @@ The swipe stays inside the detected scrollable process region. The command verif
 ```
 
 The command requires a verified `TARGET_DASHBOARD` and parses the observed identity, level, reputation, score, XP, IPv4 address, device, network, firewall, encryptor, and available actions. It only reads the UI hierarchy and never opens Wallet, Apps, Processes, Log, Crews, or Disconnect.
+
+## Local target database
+
+```bash
+.venv/bin/python -m hackex2 database-status
+```
+
+The versioned SQLite database defaults to `data/hackex2.sqlite3`. The `data/` directory is ignored by Git, while migrations and repository code are versioned. It stores only observed target state, Wallet and Log outcomes, Crypto-transfer aggregates, game tags, and a separate event history. Set `HACKEX2_DB_PATH` or pass `--database` to choose another local path.
+
+## Open a completed process target
+
+```bash
+.venv/bin/python -m hackex2 open-process-target --process-id 1992580
+.venv/bin/python -m hackex2 open-process-target --ip 88.55.27.70
+```
+
+The command requires one exact visible `COMPLETED` process with an active `HACK` action. It taps `HACK` once, never retries it, waits through transient unknown screens, and accepts the target dashboard only when its parsed IPv4 address matches the selected process. The verified dashboard and game tags are then stored locally.
+
+## Service a target with one command
+
+```bash
+.venv/bin/python -m hackex2 service-target --expected-ip 255.173.212.38
+.venv/bin/python -m hackex2 service-process-target --process-id 2223558
+```
+
+`service-target` starts from a verified connected dashboard. `service-process-target` first performs the one-shot process-to-dashboard verification and then runs the same workflow. Known Wallet branches are handled independently: login and conditional transfer, protected or empty Wallet skip, or normal password-crack request without Exploit Kits. The workflow then clears an editable Log or records a protected one, disconnects from the verified safe Log state, and persists each outcome. A proxy-masked address such as `255.173.xxx.xxx` is stored as a known-octet pattern; it is resolved to a full process IP only when the visible prefix matches exactly.
 
 ## Inspect a target-wallet branch
 

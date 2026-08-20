@@ -188,6 +188,38 @@ def locate_process_scroll_region(hierarchy: UIHierarchy) -> UIElement:
     return candidates[0]
 
 
+def locate_process_action(
+    hierarchy: UIHierarchy, process_id: str, action: str
+) -> UIElement:
+    """Locate one named active action inside one exact process card."""
+
+    card_matches = tuple(
+        element
+        for element in hierarchy.find_all(resource_id=f"proc-{process_id}")
+        if element.enabled and element.bounds.width > 0 and element.bounds.height > 0
+    )
+    if len(card_matches) != 1:
+        raise ProcessParseError(
+            f"expected exactly one visible process {process_id}, "
+            f"found {len(card_matches)}"
+        )
+    matches = tuple(
+        element
+        for element in hierarchy.descendants_of(card_matches[0])
+        if element.clickable
+        and element.enabled
+        and element.bounds.width > 0
+        and element.bounds.height > 0
+        and _action_name(element) == action
+    )
+    if len(matches) != 1:
+        raise ProcessParseError(
+            f"expected exactly one active {action} action in process {process_id}, "
+            f"found {len(matches)}"
+        )
+    return matches[0]
+
+
 def _process_scroll_candidates(hierarchy: UIHierarchy) -> tuple[UIElement, ...]:
     return tuple(
         element

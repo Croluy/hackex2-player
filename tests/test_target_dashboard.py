@@ -27,7 +27,11 @@ def target_node(
 
 
 def target_dashboard_xml(
-    *, xp_percent: int = 86, reputation: str = "720", score: str = "694 "
+    *,
+    xp_percent: int = 86,
+    reputation: str = "720",
+    score: str = "694 ",
+    ip_address: str = "51.73.134.95",
 ) -> str:
     return hierarchy_xml(
         target_node(text="CONNECTED", bounds="[73,185][222,219]"),
@@ -68,7 +72,7 @@ def target_dashboard_xml(
         target_node(text="// SYSTEM INFO", bounds="[90,1369][323,1403]"),
         target_node(text="IP", bounds="[90,1459][123,1493]"),
         target_node(
-            text="51.73.134.95", bounds="[776,1456][990,1499]", clickable=True,
+            text=ip_address, bounds="[776,1456][990,1499]", clickable=True,
             class_name="android.widget.Button",
         ),
         target_node(text="DEVICE", bounds="[135,1546][227,1580]"),
@@ -124,6 +128,29 @@ class TargetDashboardParserTest(unittest.TestCase):
         )
 
         self.assertEqual(target.reputation, 4923)
+
+    def test_resolves_masked_ip_only_from_matching_expected_process_ip(self) -> None:
+        target = parse_target_dashboard(
+            parse_ui_hierarchy(
+                target_dashboard_xml(ip_address="255.173.xxx.xxx")
+            ),
+            expected_ip_address="255.173.212.38",
+        )
+
+        self.assertEqual(target.ip_address, "255.173.212.38")
+        self.assertEqual(target.displayed_ip_address, "255.173.xxx.xxx")
+
+    def test_preserves_masked_ip_without_expected_process_ip(self) -> None:
+        hierarchy = parse_ui_hierarchy(
+            target_dashboard_xml(ip_address="255.173.xxx.xxx")
+        )
+        target = parse_target_dashboard(hierarchy)
+        self.assertEqual(target.ip_address, "255.173.xxx.xxx")
+        self.assertEqual(target.displayed_ip_address, "255.173.xxx.xxx")
+        with self.assertRaisesRegex(TargetDashboardParseError, "does not match"):
+            parse_target_dashboard(
+                hierarchy, expected_ip_address="255.174.212.38"
+            )
 
 
 if __name__ == "__main__":
